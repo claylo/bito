@@ -1,7 +1,7 @@
 set shell := ["bash", "-c"]
 set dotenv-load := true
 toolchain := `taplo get -f rust-toolchain.toml toolchain.channel | tr -d '"'`
-msrv := "1.88.0"
+msrv := "1.89.0"
 
 default:
   @just --list
@@ -38,7 +38,7 @@ bootstrap:
         source "$bootstrap_hook"
     fi
 
-    echo "🔧 Bootstrapping bito-lint..."
+    echo "🔧 Bootstrapping bito..."
     echo ""
     # Check Rust version
     installed=$(rustc --version | awk '{print $2}')
@@ -65,8 +65,8 @@ bootstrap:
     # Build
     echo "🔨 Building project..."
     cargo build --workspace
-    echo ""
 
+    echo ""
     # Generate completions and man pages
     echo "📝 Generating shell completions..."
     cargo xtask completions
@@ -74,8 +74,6 @@ bootstrap:
     echo "📖 Generating man pages..."
     cargo xtask man
     echo ""
-
-
 
     # Configure repository settings via gh-coda
     if command -v gh &>/dev/null && gh extension list 2>/dev/null | grep -q coda; then
@@ -96,7 +94,7 @@ bootstrap:
     echo "  just test      - Run tests only"
     echo ""
     echo "Try it out:"
-    echo "  target/debug/bito-lint --help"
+    echo "  target/debug/bito --help"
 
 fmt:
   cargo fmt --all
@@ -123,6 +121,7 @@ doc-test:
 
 cov:
   @cargo llvm-cov clean --workspace
+
   cargo llvm-cov nextest --no-report
   @cargo llvm-cov report --html
   @cargo llvm-cov report --summary-only --json --output-path target/llvm-cov/summary.json
@@ -136,13 +135,6 @@ watch *args='':
 # Watch and run clippy on changes
 watch-clippy:
   cargo watch -x 'clippy --all-targets --all-features -- -D warnings'
-
-
-install-hooks:
-  pre-commit install
-
-update-hooks:
-  pre-commit install --overwrite
 
 
 
@@ -177,6 +169,7 @@ mdfix *files='':
 add-crate *ARGS:
     scripts/add-crate {{ARGS}}
 
+
 # Pre-release validation
 release-check:
     #!/usr/bin/env zsh
@@ -208,17 +201,17 @@ release-check:
     # Build release
     echo ""
     echo "🔨 Building release..."
-    cargo build -p bito-lint --release
+    cargo build -p bito --release
     echo "✅ Release build succeeded"
     echo ""
     echo "✅ All pre-release checks passed!"
 
-# Build release binary
+# Build release
 build-release:
-  cargo build -p bito-lint --release
+  cargo build -p bito --release
 
 zip:
-  git archive --format=zip --output=../bito-lint-{{datetime('-%Y-%m-%d_%H%M')}}.zip HEAD
+  git archive --format=zip --output=../bito-{{datetime('-%Y-%m-%d_%H%M')}}.zip HEAD
 
 # Check for outdated dependencies (root only, no transitive noise)
 outdated:
@@ -245,11 +238,13 @@ check-updates:
 # Full refresh: update, test, clippy
 refresh: update
     cargo test --workspace
+
     cargo clippy --workspace -- -D warnings
 
 # Monthly maintenance: upgrade, test everything
 monthly: upgrade
     cargo test --workspace
+
     cargo clippy --workspace -- -D warnings
     cargo build --workspace --release
 
@@ -283,6 +278,7 @@ bump *args='':
     next=$(git cliff --bumped-version {{args}})
     echo "Next version: $next"
     # Update Cargo.toml versions
+
     cargo set-version --workspace "${next#v}"
     # Generate changelog
     git cliff --tag "$next" --output CHANGELOG.md

@@ -1,4 +1,4 @@
-# bito-lint Operational Documentation
+# bito Operational Documentation
 
 Internal documentation for project maintainers.
 

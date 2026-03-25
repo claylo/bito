@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions & Discussion
-    url: https://github.com/claylo/bito-lint/discussions
+    url: https://github.com/claylo/bito/discussions
     about: Ask questions, share ideas, or discuss before opening an issue

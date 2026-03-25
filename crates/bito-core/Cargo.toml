@@ -1,0 +1,58 @@
+[package]
+name = "bito-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Core library for bito"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+exclude = [
+    # Workspace-level files (/ = workspace root)
+    "/.claude/",
+    "/.github/",
+    "/AGENTS.md",
+    "/.justfile",
+    "/.editorconfig",
+    "/.markdownlint.yaml",
+    "/.yamllint",
+    "/.envrc",
+    "/.env",
+    "/.env.rust",
+
+    "/docs/",
+    "/deny.toml",
+    # Example config files
+    "/*.example",
+]
+
+[features]
+clap = ["dep:clap"]
+
+[dependencies]
+ah-ah-ah = "0.1"
+anyhow = "1.0"
+camino = { version = "1.2", features = ["serde1"] }
+clap = { version = "4.6", features = ["derive"], optional = true }
+directories = "6.0"
+figment = { version = "0.10", features = ["toml", "yaml", "json", "env"] }
+globset = "0.4"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["simd"] }
+regex = "1.12"
+schemars = "1.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+serde_yaml = "0.9"
+tempfile = "3.27"
+
+[lints]
+workspace = true
+
+

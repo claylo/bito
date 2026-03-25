@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 # Template for the changelog body
 body = """
 {%- macro remote_url() -%}
-  https://github.com/claylo/bito-lint
+  https://github.com/claylo/bito
 {%- endmacro -%}
 
 {% if version -%}
@@ -109,4 +109,4 @@ sort_commits = "oldest"
 
 [remote.github]
 owner = "claylo"
-repo = "bito-lint"
+repo = "bito"

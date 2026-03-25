@@ -1,22 +1,22 @@
-# bito-lint
+# bito
 
-[![CI](https://github.com/claylo/bito-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/claylo/bito-lint/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/bito-lint.svg)](https://crates.io/crates/bito-lint)
-[![docs.rs](https://docs.rs/bito-lint/badge.svg)](https://docs.rs/bito-lint)
-[![MSRV](https://img.shields.io/badge/MSRV-1.88.0-blue.svg)](https://github.com/claylo/bito-lint)
+[![CI](https://github.com/claylo/bito/actions/workflows/ci.yml/badge.svg)](https://github.com/claylo/bito/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/bito.svg)](https://crates.io/crates/bito)
+[![docs.rs](https://docs.rs/bito/badge.svg)](https://docs.rs/bito)
+[![MSRV](https://img.shields.io/badge/MSRV-1.89.0-blue.svg)](https://github.com/claylo/bito)
 
 **bito** = **b**uilding **i**n **t**he **o**pen.
 
-bito-lint is part of the [building-in-the-open](https://github.com/claylo/building-in-the-open) approach to AI-assisted development — a set of practices, templates, and tools for teams that work with coding agents. It can be used entirely on its own; the broader framework just gives it more context to work with.
+bito is part of the [building-in-the-open](https://github.com/claylo/building-in-the-open) approach to AI-assisted development — a set of practices, templates, and tools for teams that work with coding agents. It can be used entirely on its own; the broader framework just gives it more context to work with.
 
 AI coding agents generate documentation as they work — ADRs, design docs, changelogs, handoff notes. The quality varies between sessions. Sometimes you get crisp, well-structured prose. Sometimes you get bloated walls of text that no one wants to review.
 
-bito-lint catches the problems before you commit. It runs 18 deterministic writing checks — readability scoring, token budgets, section completeness, grammar, dialect enforcement, and style analysis. No LLM, no API calls, no network. Same input, same result, every time.
+bito catches the problems before you commit. It runs 18 deterministic writing checks — readability scoring, token budgets, section completeness, grammar, dialect enforcement, and style analysis. No LLM, no API calls, no network. Same input, same result, every time.
 
 The goal: agent-generated documents that are clean enough to ship.
 
 ```
-$ bito-lint analyze docs/architecture.md
+$ bito analyze docs/architecture.md
 
 docs/architecture.md
 
@@ -62,19 +62,19 @@ Every check is deterministic. No API calls, no LLM, no network. The same input p
 
 ```bash
 # Does this handoff fit in 2,000 tokens?
-$ bito-lint tokens handoff.md --budget 2000
+$ bito tokens handoff.md --budget 2000
 PASS: handoff.md is 546 tokens (budget: 2000)
 
 # Is this user guide accessible to a general audience?
-$ bito-lint readability getting-started.md --max-grade 8
+$ bito readability getting-started.md --max-grade 8
 Error: getting-started.md scores 14.7 (max: 8). Simplify sentences or reduce jargon.
 
 # Does this ADR have all the sections it needs?
-$ bito-lint completeness docs/decisions/0001-my-decision.md --template adr
+$ bito completeness docs/decisions/0001-my-decision.md --template adr
 PASS: docs/decisions/0001-my-decision.md (adr completeness check)
 
 # How's the grammar?
-$ bito-lint grammar changelog.md
+$ bito grammar changelog.md
 changelog.md: 16 sentences analyzed
   Passive voice: 2 instances (12.5%)
   Grammar issues: 3
@@ -88,18 +88,18 @@ changelog.md: 16 sentences analyzed
 ### Homebrew (macOS and Linux)
 
 ```bash
-brew install claylo/brew/bito-lint
+brew install claylo/brew/bito
 ```
 
 ### From source
 
 ```bash
-cargo install bito-lint
+cargo install bito
 ```
 
 ### Pre-built binaries
 
-Download from the [releases page](https://github.com/claylo/bito-lint/releases). Binaries are available for macOS (Apple Silicon and Intel), Linux (x86_64 and ARM64), and Windows.
+Download from the [releases page](https://github.com/claylo/bito/releases). Binaries are available for macOS (Apple Silicon and Intel), Linux (x86_64 and ARM64), and Windows.
 
 ## Usage
 
@@ -108,8 +108,8 @@ Download from the [releases page](https://github.com/claylo/bito-lint/releases).
 Define rules in your config file to map file paths to checks, then run them with one command:
 
 ```bash
-bito-lint lint docs/handoff.md
-bito-lint lint --json docs/handoff.md   # structured output for CI
+bito lint docs/handoff.md
+bito lint --json docs/handoff.md   # structured output for CI
 ```
 
 If no rules match the file, it exits cleanly. See [docs/README.md](docs/README.md) for rules configuration, accumulation, specificity, and inline suppressions.
@@ -117,7 +117,7 @@ If no rules match the file, it exits cleanly. See [docs/README.md](docs/README.m
 ### Full analysis
 
 ```bash
-bito-lint analyze my-document.md
+bito analyze my-document.md
 ```
 
 Add `--json` for machine-readable output. Add `--dialect en-gb` to enforce British spelling. Add `--checks readability,consistency` to run only specific checks. Add `--exclude style,jargon` to skip specific checks.
@@ -128,34 +128,34 @@ Quality gates are pass/fail checks designed for CI, pre-commit hooks, and automa
 
 ```bash
 # Token counting with budget enforcement
-bito-lint tokens <file> --budget <max>
+bito tokens <file> --budget <max>
 
 # Readability with grade ceiling
-bito-lint readability <file> --max-grade <max>
+bito readability <file> --max-grade <max>
 
 # Section completeness against a template
-bito-lint completeness <file> --template <name>
+bito completeness <file> --template <name>
 
 # Grammar and passive voice analysis
-bito-lint grammar <file>
+bito grammar <file>
 ```
 
-Built-in completeness templates: `adr`, `handoff`, `design-doc`. Define your own in a bito-lint config file.
+Built-in completeness templates: `adr`, `handoff`, `design-doc`. Define your own in a bito config file.
 
 Every command exits non-zero on failure, writes structured JSON with `--json`, and works in pipes.
 
 ### Dialect enforcement
 
-Set a project dialect and bito-lint flags wrong-dialect spellings alongside mixed-spelling inconsistencies:
+Set a project dialect and bito flags wrong-dialect spellings alongside mixed-spelling inconsistencies:
 
 ```bash
 # Via flag
-bito-lint analyze README.md --dialect en-us
+bito analyze README.md --dialect en-us
 
 # Via environment variable
-export BITO_LINT_DIALECT=en-gb
+export BITO_DIALECT=en-gb
 
-# Via config file (.bito-lint.toml)
+# Via config file (.bito.toml)
 dialect = "en-ca"
 ```
 
@@ -163,13 +163,13 @@ Supported dialects: `en-us`, `en-gb`, `en-ca` (Canadian hybrid: US *-ize/-ise*, 
 
 ### MCP server
 
-bito-lint includes a built-in [MCP](https://modelcontextprotocol.io/) server, so AI coding assistants can call quality gates directly during writing sessions:
+bito includes a built-in [MCP](https://modelcontextprotocol.io/) server, so AI coding assistants can call quality gates directly during writing sessions:
 
 ```json
 {
   "mcpServers": {
-    "bito-lint": {
-      "command": "bito-lint",
+    "bito": {
+      "command": "bito",
       "args": ["serve"]
     }
   }
@@ -182,21 +182,23 @@ This exposes seven tools: `analyze_writing`, `count_tokens`, `check_readability`
 
 Drop a config file in your project and it takes effect automatically:
 
-1. `.bito-lint.toml` (or `.yaml`, `.json`) in the current directory or any parent
-2. `bito-lint.toml` (without dot prefix) in the current directory or any parent
-3. `~/.config/bito-lint/config.toml` (user-wide defaults)
+1. `.bito.toml` (or `.yaml`, `.json`) in the current directory or any parent
+2. `bito.toml` (without dot prefix) in the current directory or any parent
+3. `~/.config/bito/config.toml` (user-wide defaults)
+
+For backward compatibility, `.bito-lint.*` config file names are also discovered.
 
 Closer files win. All formats (TOML, YAML, JSON) work interchangeably.
 
 Environment variables override config files:
 
-- `BITO_LINT_LOG_PATH` — log file path (daily rotation appends `.YYYY-MM-DD`)
-- `BITO_LINT_LOG_DIR` — directory (file name defaults to `bito-lint.jsonl`)
-- `BITO_LINT_ENV` — environment tag (default: `dev`)
+- `BITO_LOG_PATH` — log file path (daily rotation appends `.YYYY-MM-DD`)
+- `BITO_LOG_DIR` — directory (file name defaults to `bito.jsonl`)
+- `BITO_ENV` — environment tag (default: `dev`)
 - Config file key: `log_dir`
 
 ```toml
-# .bito-lint.toml
+# .bito.toml
 dialect = "en-us"
 token_budget = 2000
 max_grade = 12.0
@@ -209,24 +211,30 @@ Included in Homebrew installs and release archives. For manual setup:
 
 ```bash
 # Bash
-bito-lint completions bash > ~/.local/share/bash-completion/completions/bito-lint
+bito completions bash > ~/.local/share/bash-completion/completions/bito
 
 # Zsh
-bito-lint completions zsh > ~/.zfunc/_bito-lint
+bito completions zsh > ~/.zfunc/_bito
 
 # Fish
-bito-lint completions fish > ~/.config/fish/completions/bito-lint.fish
+bito completions fish > ~/.config/fish/completions/bito.fish
 ```
 
 ## Development
 
 ```
 crates/
-├── bito-lint/       # CLI binary
-└── bito-lint-core/  # Core library
+├── bito/       # CLI binary
+└── bito-core/  # Core library
 ```
 
-Prerequisites: Rust 1.88.0+, [just](https://github.com/casey/just), [cargo-nextest](https://nexte.st/).
+### Prerequisites
+
+- Rust 1.89.0+ (2024 edition)
+- [just](https://github.com/casey/just) (task runner)
+- [cargo-nextest](https://nexte.st/) (test runner)
+
+### Quick Start
 
 ```bash
 just check       # fmt + clippy + test
@@ -234,7 +242,109 @@ just test        # tests only (nextest)
 just cov         # coverage report
 ```
 
-Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/). The project enforces safe Rust (`#![deny(unsafe_code)]`), clippy nursery lints, and `cargo deny` for dependency auditing.
+### Build Tasks
+
+| Command | Description |
+|---------|-------------|
+| `just check` | Format, lint, deny, and test |
+| `just fmt` | Format code with rustfmt |
+| `just clippy` | Run clippy lints |
+| `just test` | Run tests with nextest |
+| `just doc-test` | Run documentation tests |
+| `just cov` | Generate coverage report |
+
+### xtask Commands
+
+The project includes an xtask crate for build automation:
+
+```bash
+# Generate man pages
+cargo xtask man
+
+# Generate shell completions
+cargo xtask completions
+
+# Generate for specific shell
+cargo xtask completions --shell zsh
+```
+
+## Architecture
+
+### Crate Organization
+
+- **bito** — The CLI binary. Handles argument parsing, command dispatch, MCP server, and user interaction.
+- **bito-core** — The core library. Configuration loading, writing analysis, lint engine, and all 18 deterministic checks.
+
+### Error Handling
+
+- Libraries use `thiserror` for structured error types
+- Binaries use `anyhow` for flexible error propagation
+- All errors include context for debugging
+
+### Configuration System
+
+The `ConfigLoader` provides flexible configuration discovery:
+
+```rust
+use bito_core::config::ConfigLoader;
+
+let config = ConfigLoader::new()
+    .with_project_search(std::env::current_dir()?)
+    .with_user_config(true)
+    .load()?;
+```
+
+Features:
+- Walks up directory tree looking for config files
+- Stops at repository boundaries (`.git` by default)
+- Merges multiple config sources with clear precedence
+- Supports explicit file paths for testing
+
+## CI/CD
+
+This project uses GitHub Actions for continuous integration:
+
+- **Build & Test** — Runs on every push and PR
+- **MSRV Check** — Verifies minimum supported Rust version
+- **Clippy** — Enforces lint rules
+- **Coverage** — Tracks test coverage
+
+### Dependabot
+
+This project uses Dependabot for security monitoring, but **not** for automatic pull requests. Instead:
+
+1. Dependabot scans for vulnerabilities in dependencies
+2. A weekly GitHub Actions workflow converts alerts into **issues**
+3. Maintainers review and address updates manually
+
+This approach provides:
+- Full control over when and how dependencies are updated
+- Opportunity to batch related updates together
+- Time to test updates before merging
+- Cleaner git history without automated PR noise
+
+Security alerts appear as issues labeled `dependabot-alert`.
+
+## Contributing
+
+Contributions welcome! Please see [AGENTS.md](AGENTS.md) for development conventions.
+
+### Commit Messages
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/):
+
+- `feat:` — New features
+- `fix:` — Bug fixes
+- `docs:` — Documentation changes
+- `perf:` — Performance improvements
+- `chore:` — Maintenance tasks
+
+### Code Style
+
+- Rust 2024 edition
+- `#![deny(unsafe_code)]` — Safe Rust only
+- Follow `rustfmt` defaults
+- Keep clippy clean
 
 ## License
 

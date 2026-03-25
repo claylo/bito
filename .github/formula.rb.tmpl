@@ -1,7 +1,7 @@
 # typed: true
 # frozen_string_literal: true
 
-class BitoLint < Formula
+class Bito < Formula
   desc "Quality gate tooling for building-in-the-open artifacts"
   homepage "__HOMEPAGE__"
   version "__VERSION__"
@@ -9,33 +9,33 @@ class BitoLint < Formula
 
   on_macos do
     if Hardware::CPU.arm?
-      url "__RELEASE_URL__/bito-lint-#{version}-aarch64-apple-darwin.tar.gz"
+      url "__RELEASE_URL__/bito-#{version}-aarch64-apple-darwin.tar.gz"
       sha256 "__SHA_DARWIN_ARM64__"
     else
-      url "__RELEASE_URL__/bito-lint-#{version}-x86_64-apple-darwin.tar.gz"
+      url "__RELEASE_URL__/bito-#{version}-x86_64-apple-darwin.tar.gz"
       sha256 "__SHA_DARWIN_X64__"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "__RELEASE_URL__/bito-lint-#{version}-aarch64-unknown-linux-gnu.tar.gz"
+      url "__RELEASE_URL__/bito-#{version}-aarch64-unknown-linux-gnu.tar.gz"
       sha256 "__SHA_LINUX_ARM64__"
     else
-      url "__RELEASE_URL__/bito-lint-#{version}-x86_64-unknown-linux-gnu.tar.gz"
+      url "__RELEASE_URL__/bito-#{version}-x86_64-unknown-linux-gnu.tar.gz"
       sha256 "__SHA_LINUX_X64__"
     end
   end
 
   def install
-    bin.install "bin/bito-lint"
+    bin.install "bin/bito"
     man1.install Dir["share/man/man1/*.1"]
-    bash_completion.install "share/completions/bito-lint.bash" => "bito-lint"
-    zsh_completion.install "share/completions/_bito-lint"
-    fish_completion.install "share/completions/bito-lint.fish"
+    bash_completion.install "share/completions/bito.bash" => "bito"
+    zsh_completion.install "share/completions/_bito"
+    fish_completion.install "share/completions/bito.fish"
   end
 
   test do
-    assert_match version.to_s, shell_output("\#{bin}/bito-lint --version-only")
+    assert_match version.to_s, shell_output("\#{bin}/bito --version-only")
   end
 end

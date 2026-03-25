@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier
-_commit: v1.0.0-beta.7
+_commit: v1.0.0
 _src_path: gh:claylo/claylo-rs
 categories:
 - command-line-utilities
@@ -11,8 +11,6 @@ has_agents_md: true
 has_attestations: true
 has_benchmarks: false
 has_claude: true
-has_claude_commands: true
-has_claude_skills: true
 has_cli: true
 has_coda: true
 has_community_files: false
@@ -35,9 +33,6 @@ has_releases: true
 has_roadmap_votes: false
 has_security_md: true
 has_site: false
-has_skill_capturing_decisions: true
-has_skill_markdown_authoring: true
-has_skill_using_git: true
 has_yamlfmt: false
 has_yamllint: false
 hook_system: none
@@ -45,9 +40,9 @@ license:
 - Apache-2.0
 - MIT
 lint_level: strict
-msrv: 1.88.0
+msrv: 1.89.0
 owner: claylo
-pinned_dev_toolchain: 1.93.1
+pinned_dev_toolchain: 1.94.0
 preset: standard
 project_description: Quality gate tooling for building-in-the-open artifacts
-project_name: bito-lint
+project_name: bito

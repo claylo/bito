@@ -14,7 +14,7 @@ Instead, please report them via one of the following methods:
 
 ### Option 1: GitHub Security Advisories (Preferred)
 
-Use [GitHub's private vulnerability reporting](https://github.com/claylo/bito-lint/security/advisories/new)
+Use [GitHub's private vulnerability reporting](https://github.com/claylo/bito/security/advisories/new)
 to submit a report directly.
 
 ### Option 2: Email
@@ -44,17 +44,16 @@ information or guidance.
 ## Scope
 
 This security policy applies to:
-
-- The bito-lint CLI tool
-- The bito-lint-core library
+- The bito CLI tool
+- The bito-core library
 - Official distribution channels (crates.io, GitHub releases)
 
 ## Security Best Practices
 
-When using bito-lint:
+When using bito:
 
 - Keep your installation up to date
 - Verify checksums when downloading releases
 - Report any suspicious behavior
 
-Thank you for helping keep bito-lint secure!
+Thank you for helping keep bito secure!

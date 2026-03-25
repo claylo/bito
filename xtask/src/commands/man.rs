@@ -15,13 +15,13 @@ pub fn cmd_man(args: ManArgs) -> Result<(), String> {
     fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
 
     // Generate main command manpage
-    let cmd = bito_lint::command();
+    let cmd = bito::command();
     let man = clap_mangen::Man::new(cmd.clone());
     let mut buffer: Vec<u8> = Vec::new();
     man.render(&mut buffer)
         .map_err(|e| format!("render manpage: {e}"))?;
 
-    let man_path = out_dir.join("bito-lint.1");
+    let man_path = out_dir.join("bito.1");
     fs::write(&man_path, buffer).map_err(|e| format!("{}: {e}", man_path.display()))?;
     println!("wrote {}", man_path.display());
 
@@ -33,7 +33,7 @@ pub fn cmd_man(args: ManArgs) -> Result<(), String> {
         man.render(&mut buffer)
             .map_err(|e| format!("render manpage for {name}: {e}"))?;
 
-        let man_path = out_dir.join(format!("bito-lint-{name}.1"));
+        let man_path = out_dir.join(format!("bito-{name}.1"));
         fs::write(&man_path, buffer).map_err(|e| format!("{}: {e}", man_path.display()))?;
         println!("wrote {}", man_path.display());
     }
