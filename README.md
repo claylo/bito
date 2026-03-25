@@ -88,7 +88,7 @@ changelog.md: 16 sentences analyzed
 ### Homebrew (macOS and Linux)
 
 ```bash
-brew install claylo/brew/bito
+brew install claylo/tap/bito
 ```
 
 ### From source
