@@ -33,7 +33,7 @@ pub fn cmd_install(args: InstallArgs) -> Result<(), String> {
         return Err(format!("built binary not found at {}", bin_path.display()));
     }
 
-    let dest = bin_dir.join("bito-lint");
+    let dest = bin_dir.join("bito");
     fs::copy(&bin_path, &dest).map_err(|e| format!("{}: {e}", dest.display()))?;
     set_executable(&dest)?;
     println!("installed {}", dest.display());
@@ -42,10 +42,7 @@ pub fn cmd_install(args: InstallArgs) -> Result<(), String> {
 
 fn build_cli(root: &Path, profile: &str) -> Result<std::process::ExitStatus, String> {
     let mut cmd = Command::new("cargo");
-    cmd.arg("build")
-        .arg("-p")
-        .arg("bito-lint")
-        .current_dir(root);
+    cmd.arg("build").arg("-p").arg("bito").current_dir(root);
     if profile == "release" {
         cmd.arg("--release");
     } else if profile == "dev" {
@@ -63,7 +60,7 @@ fn built_binary(root: &Path, profile: &str) -> PathBuf {
         "dev" => "debug",
         _ => profile,
     };
-    root.join("target").join(dir).join("bito-lint")
+    root.join("target").join(dir).join("bito")
 }
 
 fn expand_tilde(path: &str) -> Result<PathBuf, String> {

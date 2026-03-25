@@ -151,45 +151,45 @@ gh secret set HOMEBREW_COMMITTER_TOKEN
 
 1. Create a tap repository: `homebrew-tap` (e.g., `yourname/homebrew-tap`)
 
-2. Create an initial formula `Formula/bito-lint.rb`:
+2. Create an initial formula `Formula/bito.rb`:
 
 ```ruby
-class Bitolint < Formula
+class Bito < Formula
   desc "Quality gate tooling for building-in-the-open artifacts"
-  homepage "https://github.com/claylo/bito-lint"
+  homepage "https://github.com/claylo/bito"
   version "0.1.0"
   license "['Apache-2.0', 'MIT']"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/claylo/bito-lint/releases/download/v#{version}/bito-lint-#{version}-aarch64-apple-darwin.tar.gz"
+      url "https://github.com/claylo/bito/releases/download/v#{version}/bito-#{version}-aarch64-apple-darwin.tar.gz"
       sha256 "PLACEHOLDER"
     else
-      url "https://github.com/claylo/bito-lint/releases/download/v#{version}/bito-lint-#{version}-x86_64-apple-darwin.tar.gz"
+      url "https://github.com/claylo/bito/releases/download/v#{version}/bito-#{version}-x86_64-apple-darwin.tar.gz"
       sha256 "PLACEHOLDER"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/claylo/bito-lint/releases/download/v#{version}/bito-lint-#{version}-aarch64-unknown-linux-gnu.tar.gz"
+      url "https://github.com/claylo/bito/releases/download/v#{version}/bito-#{version}-aarch64-unknown-linux-gnu.tar.gz"
       sha256 "PLACEHOLDER"
     else
-      url "https://github.com/claylo/bito-lint/releases/download/v#{version}/bito-lint-#{version}-x86_64-unknown-linux-gnu.tar.gz"
+      url "https://github.com/claylo/bito/releases/download/v#{version}/bito-#{version}-x86_64-unknown-linux-gnu.tar.gz"
       sha256 "PLACEHOLDER"
     end
   end
 
   def install
-    bin.install "bin/bito-lint"
+    bin.install "bin/bito"
     man1.install Dir["share/man/man1/*.1"]
-    bash_completion.install "share/completions/bito-lint.bash" => "bito-lint"
-    zsh_completion.install "share/completions/_bito-lint"
-    fish_completion.install "share/completions/bito-lint.fish"
+    bash_completion.install "share/completions/bito.bash" => "bito"
+    zsh_completion.install "share/completions/_bito"
+    fish_completion.install "share/completions/bito.fish"
   end
 
   test do
-    assert_match version.to_s, shell_output("#{bin}/bito-lint --version")
+    assert_match version.to_s, shell_output("#{bin}/bito --version")
   end
 end
 ```
@@ -213,13 +213,13 @@ section = "utility"
 priority = "optional"
 assets = [
     # Binary
-    ["target/release/bito-lint", "usr/bin/", "755"],
+    ["target/release/bito", "usr/bin/", "755"],
     # Man pages (if using xtask)
     ["target/dist/share/man/man1/*", "usr/share/man/man1/", "644"],
     # Shell completions
-    ["target/dist/share/completions/bito-lint.bash", "usr/share/bash-completion/completions/bito-lint", "644"],
-    ["target/dist/share/completions/_bito-lint", "usr/share/zsh/vendor-completions/", "644"],
-    ["target/dist/share/completions/bito-lint.fish", "usr/share/fish/vendor_completions.d/", "644"],
+    ["target/dist/share/completions/bito.bash", "usr/share/bash-completion/completions/bito", "644"],
+    ["target/dist/share/completions/_bito", "usr/share/zsh/vendor-completions/", "644"],
+    ["target/dist/share/completions/bito.fish", "usr/share/fish/vendor_completions.d/", "644"],
 ]
 ```
 
@@ -239,13 +239,13 @@ gh variable set DEB_ENABLED --body "true"
 [package.metadata.generate-rpm]
 assets = [
     # Binary
-    { source = "target/release/bito-lint", dest = "/usr/bin/bito-lint", mode = "755" },
+    { source = "target/release/bito", dest = "/usr/bin/bito", mode = "755" },
     # Man pages (if using xtask)
     { source = "target/dist/share/man/man1/*", dest = "/usr/share/man/man1/", mode = "644", doc = true },
     # Shell completions
-    { source = "target/dist/share/completions/bito-lint.bash", dest = "/usr/share/bash-completion/completions/bito-lint", mode = "644" },
-    { source = "target/dist/share/completions/_bito-lint", dest = "/usr/share/zsh/site-functions/_bito-lint", mode = "644" },
-    { source = "target/dist/share/completions/bito-lint.fish", dest = "/usr/share/fish/vendor_completions.d/bito-lint.fish", mode = "644" },
+    { source = "target/dist/share/completions/bito.bash", dest = "/usr/share/bash-completion/completions/bito", mode = "644" },
+    { source = "target/dist/share/completions/_bito", dest = "/usr/share/zsh/site-functions/_bito", mode = "644" },
+    { source = "target/dist/share/completions/bito.fish", dest = "/usr/share/fish/vendor_completions.d/bito.fish", mode = "644" },
 ]
 
 [package.metadata.generate-rpm.requires]
@@ -267,33 +267,33 @@ npm distribution uses platform-specific packages with a wrapper package that han
 
 ```
 npm/
-├── bito-lint/                    # Main wrapper package
+├── bito/                    # Main wrapper package
 │   ├── package.json
 │   ├── index.js                           # Binary resolution
 │   ├── cli.js                             # CLI entry point
 │   └── install.js                         # Postinstall fallback
 └── platforms/
-    ├── bito-lint-darwin-arm64/
+    ├── bito-darwin-arm64/
     │   ├── package.json
-    │   └── bin/bito-lint
-    ├── bito-lint-darwin-x64/
-    ├── bito-lint-linux-arm64/
-    ├── bito-lint-linux-x64/
-    ├── bito-lint-win32-arm64/
-    └── bito-lint-win32-x64/
+    │   └── bin/bito
+    ├── bito-darwin-x64/
+    ├── bito-linux-arm64/
+    ├── bito-linux-x64/
+    ├── bito-win32-arm64/
+    └── bito-win32-x64/
 ```
 
-#### Platform Package (e.g., `npm/platforms/bito-lint-linux-x64/package.json`)
+#### Platform Package (e.g., `npm/platforms/bito-linux-x64/package.json`)
 
 ```json
 {
-  "name": "@claylo/bito-lint-linux-x64",
+  "name": "@claylo/bito-linux-x64",
   "version": "0.1.0",
   "description": "Quality gate tooling for building-in-the-open artifacts (linux-x64 binary)",
   "license": "['Apache-2.0', 'MIT']",
   "repository": {
     "type": "git",
-    "url": "https://github.com/claylo/bito-lint"
+    "url": "https://github.com/claylo/bito"
   },
   "os": ["linux"],
   "cpu": ["x64"],
@@ -304,49 +304,49 @@ npm/
 Valid `os` values: `"linux"`, `"darwin"`, `"win32"`
 Valid `cpu` values: `"x64"`, `"arm64"`
 
-#### Main Wrapper Package (`npm/bito-lint/package.json`)
+#### Main Wrapper Package (`npm/bito/package.json`)
 
 ```json
 {
-  "name": "@claylo/bito-lint",
+  "name": "@claylo/bito",
   "version": "0.1.0",
   "description": "Quality gate tooling for building-in-the-open artifacts",
   "license": "['Apache-2.0', 'MIT']",
   "repository": {
     "type": "git",
-    "url": "https://github.com/claylo/bito-lint"
+    "url": "https://github.com/claylo/bito"
   },
   "bin": {
-    "bito-lint": "cli.js"
+    "bito": "cli.js"
   },
   "scripts": {
     "postinstall": "node install.js"
   },
   "files": ["index.js", "cli.js", "install.js"],
   "optionalDependencies": {
-    "@claylo/bito-lint-darwin-arm64": "0.1.0",
-    "@claylo/bito-lint-darwin-x64": "0.1.0",
-    "@claylo/bito-lint-linux-arm64": "0.1.0",
-    "@claylo/bito-lint-linux-x64": "0.1.0",
-    "@claylo/bito-lint-win32-arm64": "0.1.0",
-    "@claylo/bito-lint-win32-x64": "0.1.0"
+    "@claylo/bito-darwin-arm64": "0.1.0",
+    "@claylo/bito-darwin-x64": "0.1.0",
+    "@claylo/bito-linux-arm64": "0.1.0",
+    "@claylo/bito-linux-x64": "0.1.0",
+    "@claylo/bito-win32-arm64": "0.1.0",
+    "@claylo/bito-win32-x64": "0.1.0"
   }
 }
 ```
 
-#### Binary Resolution (`npm/bito-lint/index.js`)
+#### Binary Resolution (`npm/bito/index.js`)
 
 ```javascript
 const path = require("path");
 const fs = require("fs");
 
 const PLATFORMS = {
-  "darwin-arm64": "@claylo/bito-lint-darwin-arm64",
-  "darwin-x64": "@claylo/bito-lint-darwin-x64",
-  "linux-arm64": "@claylo/bito-lint-linux-arm64",
-  "linux-x64": "@claylo/bito-lint-linux-x64",
-  "win32-arm64": "@claylo/bito-lint-win32-arm64",
-  "win32-x64": "@claylo/bito-lint-win32-x64",
+  "darwin-arm64": "@claylo/bito-darwin-arm64",
+  "darwin-x64": "@claylo/bito-darwin-x64",
+  "linux-arm64": "@claylo/bito-linux-arm64",
+  "linux-x64": "@claylo/bito-linux-x64",
+  "win32-arm64": "@claylo/bito-win32-arm64",
+  "win32-x64": "@claylo/bito-win32-x64",
 };
 
 function getBinaryPath() {
@@ -357,7 +357,7 @@ function getBinaryPath() {
     throw new Error(`Unsupported platform: ${platformKey}`);
   }
 
-  const binaryName = process.platform === "win32" ? "bito-lint.exe" : "bito-lint";
+  const binaryName = process.platform === "win32" ? "bito.exe" : "bito";
 
   // Try optionalDependency first
   try {
@@ -375,15 +375,15 @@ function getBinaryPath() {
   }
 
   throw new Error(
-    `Could not find bito-lint binary. ` +
-    `Try reinstalling @claylo/bito-lint`
+    `Could not find bito binary. ` +
+    `Try reinstalling @claylo/bito`
   );
 }
 
 module.exports = { getBinaryPath };
 ```
 
-#### CLI Entry Point (`npm/bito-lint/cli.js`)
+#### CLI Entry Point (`npm/bito/cli.js`)
 
 ```javascript
 #!/usr/bin/env node
@@ -397,7 +397,7 @@ const child = spawn(getBinaryPath(), process.argv.slice(2), {
 child.on("close", (code) => process.exit(code ?? 0));
 ```
 
-#### Postinstall Fallback (`npm/bito-lint/install.js`)
+#### Postinstall Fallback (`npm/bito/install.js`)
 
 ```javascript
 const https = require("https");
@@ -406,12 +406,12 @@ const path = require("path");
 const zlib = require("zlib");
 
 const PLATFORMS = {
-  "darwin-arm64": "@claylo/bito-lint-darwin-arm64",
-  "darwin-x64": "@claylo/bito-lint-darwin-x64",
-  "linux-arm64": "@claylo/bito-lint-linux-arm64",
-  "linux-x64": "@claylo/bito-lint-linux-x64",
-  "win32-arm64": "@claylo/bito-lint-win32-arm64",
-  "win32-x64": "@claylo/bito-lint-win32-x64",
+  "darwin-arm64": "@claylo/bito-darwin-arm64",
+  "darwin-x64": "@claylo/bito-darwin-x64",
+  "linux-arm64": "@claylo/bito-linux-arm64",
+  "linux-x64": "@claylo/bito-linux-x64",
+  "win32-arm64": "@claylo/bito-win32-arm64",
+  "win32-x64": "@claylo/bito-win32-x64",
 };
 
 async function install() {
@@ -437,7 +437,7 @@ async function install() {
   const tarball = await download(tarballUrl);
   const files = extractTar(zlib.gunzipSync(tarball));
 
-  const binaryName = process.platform === "win32" ? "bito-lint.exe" : "bito-lint";
+  const binaryName = process.platform === "win32" ? "bito.exe" : "bito";
   const binaryEntry = files.find((f) => f.name.endsWith(`/bin/${binaryName}`));
 
   if (!binaryEntry) {
@@ -510,19 +510,19 @@ gh variable set NPM_ENABLED --body "true"
 Each release tarball contains:
 
 ```
-bito-lint-{version}-{target}/
+bito-{version}-{target}/
 ├── bin/
-│   └── bito-lint          # The compiled binary
+│   └── bito               # The compiled binary
 ├── share/
 │   ├── man/
 │   │   └── man1/
-│   │       ├── bito-lint.1           # Main command man page
-│   │       └── bito-lint-*.1         # Subcommand man pages
+│   │       ├── bito.1           # Main command man page
+│   │       └── bito-*.1         # Subcommand man pages
 │   └── completions/
-│       ├── bito-lint.bash            # Bash completions
-│       ├── bito-lint.fish            # Fish completions
-│       ├── bito-lint.ps1             # PowerShell completions
-│       └── _bito-lint                # Zsh completions
+│       ├── bito.bash            # Bash completions
+│       ├── bito.fish            # Fish completions
+│       ├── bito.ps1             # PowerShell completions
+│       └── _bito                # Zsh completions
 ├── LICENSE-*
 ├── README.md
 └── CHANGELOG.md
@@ -535,7 +535,7 @@ This structure follows [XDG conventions](https://specifications.freedesktop.org/
 All release builds use [cargo-auditable](https://github.com/rust-secure-code/cargo-auditable) to embed dependency information in the binary. This enables vulnerability scanning of deployed binaries:
 
 ```bash
-cargo audit bin ./target/release/bito-lint
+cargo audit bin ./target/release/bito
 ```
 
 ### CycloneDX SBOM

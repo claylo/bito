@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Got an idea to make bito-lint better? We'd love to hear it!
+        Got an idea to make bito better? We'd love to hear it!
 
   - type: textarea
     id: problem
@@ -22,11 +22,11 @@ body:
       label: Proposed solution
       description: How do you think this should work?
       placeholder: |
-        It would be great if bito-lint could...
+        It would be great if bito could...
 
         Example usage:
         ```bash
-        bito-lint new-command --flag
+        bito new-command --flag
         ```
     validations:
       required: true

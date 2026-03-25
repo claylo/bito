@@ -1,6 +1,6 @@
 # Token Counting
 
-bito-lint counts tokens offline without API calls.
+bito counts tokens offline without API calls.
 Two backends, one default: Claude greedy estimation and OpenAI exact BPE.
 
 ## Table of Contents
@@ -96,7 +96,7 @@ In a table row like `| 62,902 | 707 |`, the automaton can match tokens that span
 across `|` pipe boundaries — effectively merging adjacent cells into one token.
 This causes an **undercount**, which is the dangerous direction.
 
-bito-lint fixes this by decomposing tables before counting:
+bito fixes this by decomposing tables before counting:
 
 1. **Fast path:** no `|` in the input → straight to greedy (zero overhead).
 2. **Parse for tables** using pulldown-cmark's offset iterator.
@@ -112,7 +112,7 @@ on the cell content that matters for budget enforcement.
 
 The table decomposition uses `pulldown_cmark::Parser::new_ext`
 with `Options::ENABLE_TABLES` — the same parser already used
-in bito-lint's markdown stripping (`markdown.rs`).
+in bito's markdown stripping (`markdown.rs`).
 
 ## Accuracy
 
@@ -149,4 +149,4 @@ Use it when you need exact GPT-4 / cl100k_base counts.
 
 Configure via CLI (`--tokenizer claude|openai`),
 config file (`tokenizer = "openai"`),
-or environment variable (`BITO_LINT_TOKENIZER=openai`).
+or environment variable (`BITO_TOKENIZER=openai`).

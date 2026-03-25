@@ -19,8 +19,8 @@ pub fn cmd_completions(args: CompletionsArgs) -> Result<(), String> {
     let out_dir = crate::workspace_root().join(args.out_dir);
     fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
 
-    let mut cmd = bito_lint::command();
-    let bin_name = "bito-lint";
+    let mut cmd = bito::command();
+    let bin_name = "bito";
 
     let shells: Vec<Shell> = match args.shell {
         Some(shell) => vec![shell],

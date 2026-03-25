@@ -1,10 +1,10 @@
-# bito-lint Documentation
+# bito Documentation
 
 Quality gate tooling for building-in-the-open artifacts. Run writing quality checks on Markdown files via CLI or MCP server.
 
 ## Commands
 
-bito-lint has two modes of operation: **config-driven** (`lint`) and **ad-hoc** (everything else). Pick the right one for your workflow.
+bito has two modes of operation: **config-driven** (`lint`) and **ad-hoc** (everything else). Pick the right one for your workflow.
 
 | Command | Purpose | Typical use |
 |---------|---------|-------------|
@@ -24,8 +24,8 @@ bito-lint has two modes of operation: **config-driven** (`lint`) and **ad-hoc** 
 Config-driven. Matches the file path against `rules` in your config, resolves which checks apply, and runs them all. One command, consistent behavior. If no rules match the file, it prints `SKIP` and exits cleanly.
 
 ```bash
-bito-lint lint docs/handoff.md
-bito-lint lint --json docs/handoff.md   # structured output for CI
+bito lint docs/handoff.md
+bito lint --json docs/handoff.md   # structured output for CI
 ```
 
 ### analyze
@@ -33,10 +33,10 @@ bito-lint lint --json docs/handoff.md   # structured output for CI
 Ad-hoc deep dive. Runs all 18 writing quality checks by default, or a subset via `--checks` / `--exclude`. Use interactively when exploring writing quality for a specific file.
 
 ```bash
-bito-lint analyze docs/guide.md
-bito-lint analyze --checks readability,grammar,style docs/guide.md
-bito-lint analyze --exclude jargon,acronyms docs/guide.md
-bito-lint analyze --style-min 70 --max-grade 10.0 docs/guide.md
+bito analyze docs/guide.md
+bito analyze --checks readability,grammar,style docs/guide.md
+bito analyze --exclude jargon,acronyms docs/guide.md
+bito analyze --style-min 70 --max-grade 10.0 docs/guide.md
 ```
 
 The 18 analysis checks: `readability`, `grammar`, `sticky`, `pacing`, `sentence_length`, `transitions`, `overused`, `repeated`, `echoes`, `sensory`, `diction`, `cliches`, `consistency`, `acronyms`, `jargon`, `complex_paragraphs`, `conjunction_starts`, `style`.
@@ -46,22 +46,22 @@ The 18 analysis checks: `readability`, `grammar`, `sticky`, `pacing`, `sentence_
 Single-purpose gates. Each runs exactly one check and exits non-zero on failure. Useful when you want a targeted quality gate without configuring rules.
 
 ```bash
-bito-lint readability --max-grade 8.0 docs/guide.md
-bito-lint grammar --passive-max 15.0 docs/guide.md
-bito-lint completeness --template handoff .handoffs/sprint-42.md
-bito-lint tokens --budget 4000 docs/design.md
+bito readability --max-grade 8.0 docs/guide.md
+bito grammar --passive-max 15.0 docs/guide.md
+bito completeness --template handoff .handoffs/sprint-42.md
+bito tokens --budget 4000 docs/design.md
 ```
 
-For full flag details, run `bito-lint <command> --help`.
+For full flag details, run `bito <command> --help`.
 
 ### custom
 
 List and inspect custom content entries defined in your config. Plugins and agents use named entries to load project-specific instructions (voice guidelines, house style, glossaries, etc.) at session start.
 
 ```bash
-bito-lint custom list                  # show all defined entry names
-bito-lint custom show voice            # print resolved content for "voice"
-bito-lint custom show voice --json     # structured output
+bito custom list                  # show all defined entry names
+bito custom show voice            # print resolved content for "voice"
+bito custom show voice --json     # structured output
 ```
 
 See [Custom content entries](#custom-content-entries) for configuration details.
@@ -69,8 +69,8 @@ See [Custom content entries](#custom-content-entries) for configuration details.
 ### doctor and info
 
 ```bash
-bito-lint doctor          # shows config sources, environment, diagnostics
-bito-lint info            # shows version, features, config file paths
+bito doctor          # shows config sources, environment, diagnostics
+bito info            # shows version, features, config file paths
 ```
 
 ### serve
@@ -78,7 +78,7 @@ bito-lint info            # shows version, features, config file paths
 Starts an MCP (Model Context Protocol) server on stdio for IDE and agent integration.
 
 ```bash
-bito-lint serve
+bito serve
 ```
 
 ## Global flags
@@ -227,28 +227,28 @@ Aggregate-only checks that need the full document to produce a meaningful score 
 
 ### Config file discovery
 
-bito-lint searches for config files in this order:
+bito searches for config files in this order:
 
 1. **Explicit** -- `--config <file>` flag
 2. **Project** -- walk up from current directory, stopping at `.git`:
-   - `.bito.toml`, `.bito.yaml`, `.bito.yml`, `.bito.json` (shared with other bito tools)
+   - `.bito.toml`, `.bito.yaml`, `.bito.yml`, `.bito.json`
    - `bito.toml`, `bito.yaml`, `bito.yml`, `bito.json`
-   - `.bito-lint.toml`, `.bito-lint.yaml`, `.bito-lint.yml`, `.bito-lint.json`
-   - `bito-lint.toml`, `bito-lint.yaml`, `bito-lint.yml`, `bito-lint.json`
-3. **User** -- `~/.config/bito-lint/config.{toml,yaml,yml,json}`
+   - `.bito-lint.toml`, `.bito-lint.yaml`, `.bito-lint.yml`, `.bito-lint.json` (backward compat)
+   - `bito-lint.toml`, `bito-lint.yaml`, `bito-lint.yml`, `bito-lint.json` (backward compat)
+3. **User** -- `~/.config/bito/config.{toml,yaml,yml,json}`
 
-When multiple project-level config files exist in the same directory, all are merged. Later files in the precedence list override earlier ones, so `bito-lint.yaml` overrides `.bito.yaml` for any shared keys.
+When multiple project-level config files exist in the same directory, all are merged. Later files in the precedence list override earlier ones, so `bito.yaml` overrides `.bito.yaml` for any shared keys.
 
 Precedence (highest to lowest): CLI flags > environment variables > explicit config > project config > user config > defaults.
 
 ### Environment variables
 
-All config fields can be set via environment variables with the `BITO_LINT_` prefix:
+All config fields can be set via environment variables with the `BITO_` prefix:
 
 ```bash
-BITO_LINT_DIALECT=en-gb
-BITO_LINT_LOG_LEVEL=debug
-BITO_LINT_TOKENIZER=openai
+BITO_DIALECT=en-gb
+BITO_LOG_LEVEL=debug
+BITO_TOKENIZER=openai
 ```
 
 ### All fields
@@ -395,11 +395,11 @@ instructions = """
 file = "docs/glossary.md"
 ```
 
-File paths are resolved relative to the config file's directory. Use `bito-lint custom list` and `bito-lint custom show <name>` to verify resolution.
+File paths are resolved relative to the config file's directory. Use `bito custom list` and `bito custom show <name>` to verify resolution.
 
 ## MCP tools
 
-The MCP server (`bito-lint serve`) exposes 8 tools for AI agent integration:
+The MCP server (`bito serve`) exposes 8 tools for AI agent integration:
 
 | Tool | Description |
 |------|-------------|

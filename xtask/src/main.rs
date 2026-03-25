@@ -1,4 +1,4 @@
-//! Build automation tasks for bito-lint.
+//! Build automation tasks for bito.
 //!
 //! This crate provides development utilities:
 //! - `completions` - Generate shell completions
@@ -25,13 +25,13 @@ struct Xtask {
 
 #[derive(Subcommand, Debug)]
 enum Task {
-    /// Generate shell completions for the bito-lint CLI.
+    /// Generate shell completions for the bito CLI.
     Completions(commands::completions::CompletionsArgs),
 
-    /// Generate manpages for the bito-lint CLI.
+    /// Generate manpages for the bito CLI.
     Man(commands::man::ManArgs),
 
-    /// Build and install the bito-lint CLI into ~/.bin for local testing.
+    /// Build and install the bito CLI into ~/.bin for local testing.
     Install(commands::install::InstallArgs),
 }
 
