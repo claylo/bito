@@ -8,12 +8,12 @@ const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50 MiB
 const REQUEST_TIMEOUT_MS = 30_000; // 30 seconds
 
 const PLATFORMS = {
-  "darwin-arm64": "@claylo/bito-lint-darwin-arm64",
-  "darwin-x64": "@claylo/bito-lint-darwin-x64",
-  "linux-arm64": "@claylo/bito-lint-linux-arm64",
-  "linux-x64": "@claylo/bito-lint-linux-x64",
-  "win32-arm64": "@claylo/bito-lint-win32-arm64",
-  "win32-x64": "@claylo/bito-lint-win32-x64",
+  "darwin-arm64": "@claylo/bito-darwin-arm64",
+  "darwin-x64": "@claylo/bito-darwin-x64",
+  "linux-arm64": "@claylo/bito-linux-arm64",
+  "linux-x64": "@claylo/bito-linux-x64",
+  "win32-arm64": "@claylo/bito-win32-arm64",
+  "win32-x64": "@claylo/bito-win32-x64",
 };
 
 async function install() {
@@ -42,7 +42,7 @@ async function install() {
   const files = extractTar(zlib.gunzipSync(tarball));
 
   const binaryName =
-    process.platform === "win32" ? "bito-lint.exe" : "bito-lint";
+    process.platform === "win32" ? "bito.exe" : "bito";
   const binaryEntry = files.find((f) => f.name.endsWith(`/bin/${binaryName}`));
 
   if (!binaryEntry) {

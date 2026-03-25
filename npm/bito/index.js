@@ -2,12 +2,12 @@ const path = require("path");
 const fs = require("fs");
 
 const PLATFORMS = {
-  "darwin-arm64": "@claylo/bito-lint-darwin-arm64",
-  "darwin-x64": "@claylo/bito-lint-darwin-x64",
-  "linux-arm64": "@claylo/bito-lint-linux-arm64",
-  "linux-x64": "@claylo/bito-lint-linux-x64",
-  "win32-arm64": "@claylo/bito-lint-win32-arm64",
-  "win32-x64": "@claylo/bito-lint-win32-x64",
+  "darwin-arm64": "@claylo/bito-darwin-arm64",
+  "darwin-x64": "@claylo/bito-darwin-x64",
+  "linux-arm64": "@claylo/bito-linux-arm64",
+  "linux-x64": "@claylo/bito-linux-x64",
+  "win32-arm64": "@claylo/bito-win32-arm64",
+  "win32-x64": "@claylo/bito-win32-x64",
 };
 
 function getBinaryPath() {
@@ -19,7 +19,7 @@ function getBinaryPath() {
   }
 
   const binaryName =
-    process.platform === "win32" ? "bito-lint.exe" : "bito-lint";
+    process.platform === "win32" ? "bito.exe" : "bito";
 
   // Try optionalDependency first
   try {
@@ -39,8 +39,8 @@ function getBinaryPath() {
   }
 
   throw new Error(
-    `Could not find bito-lint binary. ` +
-      `Try reinstalling @claylo/bito-lint`
+    `Could not find bito binary. ` +
+      `Try reinstalling @claylo/bito`
   );
 }
 
