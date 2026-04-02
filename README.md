@@ -182,11 +182,10 @@ This exposes seven tools: `analyze_writing`, `count_tokens`, `check_readability`
 
 Drop a config file in your project and it takes effect automatically:
 
-1. `.bito.toml` (or `.yaml`, `.json`) in the current directory or any parent
-2. `bito.toml` (without dot prefix) in the current directory or any parent
-3. `~/.config/bito/config.toml` (user-wide defaults)
-
-For backward compatibility, `.bito-lint.*` config file names are also discovered.
+1. `.config/bito.toml` (or `.yaml`, `.json`) in the current directory or any parent
+2. `.bito.toml` in the current directory or any parent
+3. `bito.toml` (without dot prefix) in the current directory or any parent
+4. `~/.config/bito/config.toml` (user-wide defaults)
 
 Closer files win. All formats (TOML, YAML, JSON) work interchangeably.
 

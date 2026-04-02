@@ -1,13 +1,13 @@
 # bito Configuration (TOML format)
 #
 # Copy this file to one of the following locations:
+#   - .config/bito.toml (in your project directory)
 #   - .bito.toml (in your project directory)
 #   - bito.toml (in your project directory, without dot prefix)
 #   - ~/.config/bito/config.toml (user-wide config)
 #
-# For backward compatibility, .bito-lint.* names are also discovered.
-#
-# When multiple files exist in the same directory, all are merged.
+# The first matching file wins; the search stops at the closest
+# directory containing a match.
 #
 # Supported formats: TOML, YAML, JSON
 # (use the appropriate extension: .toml, .yaml, .yml, .json)

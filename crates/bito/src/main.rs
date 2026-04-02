@@ -4,13 +4,16 @@
 use anyhow::Context;
 use bito::{Cli, Commands, commands};
 use bito_core::config::ConfigLoader;
-use clap::Parser;
+use clap::FromArgMatches;
 use tracing::debug;
 
 use bito_core::observability;
 
-fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::from_arg_matches(&bito::command().get_matches())
+        .expect("clap mismatch between Cli derive and command()");
+
     cli.color.apply();
 
     if cli.version_only {

@@ -337,7 +337,7 @@ fn lint_with_config_rules_runs_checks() {
     let dir = tempfile::tempdir().unwrap();
 
     // Create a config file with rules
-    let config_path = dir.path().join(".bito-lint.yaml");
+    let config_path = dir.path().join(".bito.yaml");
     std::fs::write(
         &config_path,
         r#"
@@ -374,7 +374,7 @@ rules:
 fn lint_no_match_skips_cleanly() {
     let dir = tempfile::tempdir().unwrap();
 
-    let config_path = dir.path().join(".bito-lint.yaml");
+    let config_path = dir.path().join(".bito.yaml");
     std::fs::write(
         &config_path,
         "rules:\n  - paths: [\"docs/**/*.md\"]\n    checks:\n      readability:\n        max_grade: 20\n",
@@ -400,7 +400,7 @@ fn lint_no_match_skips_cleanly() {
 fn lint_json_output_has_pass_field() {
     let dir = tempfile::tempdir().unwrap();
 
-    let config_path = dir.path().join(".bito-lint.yaml");
+    let config_path = dir.path().join(".bito.yaml");
     std::fs::write(
         &config_path,
         r#"
@@ -438,7 +438,7 @@ rules:
 fn lint_with_tokens_budget() {
     let dir = tempfile::tempdir().unwrap();
 
-    let config_path = dir.path().join(".bito-lint.yaml");
+    let config_path = dir.path().join(".bito.yaml");
     std::fs::write(
         &config_path,
         r#"
