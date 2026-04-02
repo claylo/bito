@@ -231,13 +231,12 @@ bito searches for config files in this order:
 
 1. **Explicit** -- `--config <file>` flag
 2. **Project** -- walk up from current directory, stopping at `.git`:
-   - `.bito.toml`, `.bito.yaml`, `.bito.yml`, `.bito.json`
-   - `bito.toml`, `bito.yaml`, `bito.yml`, `bito.json`
-   - `.bito-lint.toml`, `.bito-lint.yaml`, `.bito-lint.yml`, `.bito-lint.json` (backward compat)
-   - `bito-lint.toml`, `bito-lint.yaml`, `bito-lint.yml`, `bito-lint.json` (backward compat)
+   - `.config/bito.{toml,yaml,yml,json}`
+   - `.bito.{toml,yaml,yml,json}`
+   - `bito.{toml,yaml,yml,json}`
 3. **User** -- `~/.config/bito/config.{toml,yaml,yml,json}`
 
-When multiple project-level config files exist in the same directory, all are merged. Later files in the precedence list override earlier ones, so `bito.yaml` overrides `.bito.yaml` for any shared keys.
+The first matching file wins within a directory; the search stops at the closest directory containing a match.
 
 Precedence (highest to lowest): CLI flags > environment variables > explicit config > project config > user config > defaults.
 

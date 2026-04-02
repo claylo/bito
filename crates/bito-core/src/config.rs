@@ -13,16 +13,15 @@
 //! - JSON (`.json`)
 //!
 //! # Config file locations (in order of precedence, highest first):
-//! - `bito-lint.<ext>` in current directory or any parent
-//! - `.bito-lint.<ext>` in current directory or any parent
-//! - `bito.<ext>` in current directory or any parent
+//! - `.config/bito.<ext>` in current directory or any parent
 //! - `.bito.<ext>` in current directory or any parent
+//! - `bito.<ext>` in current directory or any parent
 //! - `~/.config/bito/config.<ext>` (user config)
 //!
 //! Where `<ext>` is one of: `toml`, `yaml`, `yml`, `json`
 //!
-//! When multiple files exist in the same directory, all are merged via figment.
-//! Later extensions override earlier: toml < yaml < yml < json.
+//! The first matching file wins within a directory; the search stops at the
+//! closest directory containing a match.
 //!
 //! # Example
 //! ```no_run
@@ -320,9 +319,6 @@ const CONFIG_EXTENSIONS: &[&str] = &["toml", "yaml", "yml", "json"];
 /// Application name for XDG directory lookup and config file names.
 const APP_NAME: &str = "bito";
 
-/// Application names to search for config files (in precedence order, lowest first).
-const APP_NAMES: &[&str] = &["bito", "bito-lint"];
-
 /// Builder for loading configuration from multiple sources.
 #[derive(Debug, Default)]
 pub struct ConfigLoader {
@@ -458,39 +454,31 @@ impl ConfigLoader {
 
     /// Find project config files by walking up from the given directory.
     ///
-    /// Returns all matching config files from the closest directory that has any
-    /// match, ordered low-to-high precedence: `bito` names before `bito-lint`
-    /// names, dotfiles before regular files within each app name.
+    /// Returns the highest-precedence config file from the closest directory
+    /// that has a match. Precedence: `.config/bito.<ext>` > `.bito.<ext>` > `bito.<ext>`.
     fn find_project_configs(&self, start: &Utf8Path) -> Vec<Utf8PathBuf> {
         let mut current = Some(start.to_path_buf());
 
         while let Some(dir) = current {
-            let mut found = Vec::new();
-
-            // Search order (low→high precedence, figment merges last-wins):
-            //   1. .bito.{toml,yaml,yml,json}
-            //   2. bito.{toml,yaml,yml,json}
-            //   3. .bito-lint.{toml,yaml,yml,json}
-            //   4. bito-lint.{toml,yaml,yml,json}
-            for app_name in APP_NAMES {
-                // Dotfiles first (lower precedence within same app name)
-                for ext in CONFIG_EXTENSIONS {
-                    let dotfile = dir.join(format!(".{app_name}.{ext}"));
-                    if dotfile.is_file() {
-                        found.push(dotfile);
-                    }
+            // Check for config files in this directory (try each extension)
+            for ext in CONFIG_EXTENSIONS {
+                // Try .config/ directory first (.config/bito.toml)
+                let dotconfig = dir.join(format!(".config/{APP_NAME}.{ext}"));
+                if dotconfig.is_file() {
+                    return vec![dotconfig];
                 }
-                // Regular files (higher precedence within same app name)
-                for ext in CONFIG_EXTENSIONS {
-                    let regular = dir.join(format!("{app_name}.{ext}"));
-                    if regular.is_file() {
-                        found.push(regular);
-                    }
-                }
-            }
 
-            if !found.is_empty() {
-                return found;
+                // Then dotfile (.bito.toml)
+                let dotfile = dir.join(format!(".{APP_NAME}.{ext}"));
+                if dotfile.is_file() {
+                    return vec![dotfile];
+                }
+
+                // Then regular name (bito.toml)
+                let regular = dir.join(format!("{APP_NAME}.{ext}"));
+                if regular.is_file() {
+                    return vec![regular];
+                }
             }
 
             // Check for boundary marker AFTER checking config files,
@@ -615,7 +603,7 @@ mod tests {
         fs::write(
             &config_path,
             r#"log_level = "debug"
-log_dir = "/tmp/bito-lint"
+log_dir = "/tmp/bito"
 "#,
         )
         .unwrap();
@@ -632,7 +620,7 @@ log_dir = "/tmp/bito-lint"
         assert_eq!(config.log_level, LogLevel::Debug);
         assert_eq!(
             config.log_dir.as_ref().map(|dir| dir.as_str()),
-            Some("/tmp/bito-lint")
+            Some("/tmp/bito")
         );
     }
 
@@ -669,7 +657,7 @@ log_dir = "/tmp/bito-lint"
         fs::create_dir_all(&sub_dir).unwrap();
 
         // Create config in project root
-        let config_path = project_dir.join(".bito-lint.toml");
+        let config_path = project_dir.join(".bito.toml");
         fs::write(&config_path, r#"log_level = "debug""#).unwrap();
 
         // Convert to Utf8PathBuf for API call
@@ -688,6 +676,36 @@ log_dir = "/tmp/bito-lint"
     }
 
     #[test]
+    fn test_dotconfig_directory_takes_precedence() {
+        let tmp = TempDir::new().unwrap();
+        let project_dir = tmp.path().join("project");
+        let dotconfig_dir = project_dir.join(".config");
+        fs::create_dir_all(&dotconfig_dir).unwrap();
+
+        // Create both .config/project.toml and .project.toml
+        fs::write(dotconfig_dir.join("bito.toml"), r#"log_level = "debug""#).unwrap();
+        fs::write(project_dir.join(".bito.toml"), r#"log_level = "warn""#).unwrap();
+
+        let project_dir = Utf8PathBuf::try_from(project_dir).unwrap();
+
+        let (config, sources) = ConfigLoader::new()
+            .with_user_config(false)
+            .without_boundary_marker()
+            .with_project_search(&project_dir)
+            .load()
+            .unwrap();
+
+        // .config/ should win over dotfile
+        assert_eq!(config.log_level, LogLevel::Debug);
+        assert!(
+            sources
+                .project_files
+                .iter()
+                .any(|p| p.as_str().contains(".config/"))
+        );
+    }
+
+    #[test]
     fn test_boundary_marker_stops_search() {
         let tmp = TempDir::new().unwrap();
 
@@ -698,7 +716,7 @@ log_dir = "/tmp/bito-lint"
         fs::create_dir_all(&work).unwrap();
 
         // Config in parent (should NOT be found due to .git boundary)
-        fs::write(parent.join(".bito-lint.toml"), r#"log_level = "warn""#).unwrap();
+        fs::write(parent.join(".bito.toml"), r#"log_level = "warn""#).unwrap();
 
         // .git marker in child
         fs::create_dir(child.join(".git")).unwrap();
@@ -724,7 +742,7 @@ log_dir = "/tmp/bito-lint"
         let tmp = TempDir::new().unwrap();
 
         // Project config
-        let project_config = tmp.path().join(".bito-lint.toml");
+        let project_config = tmp.path().join(".bito.toml");
         fs::write(&project_config, r#"log_level = "warn""#).unwrap();
 
         // Explicit override
@@ -984,70 +1002,6 @@ rules:
     }
 
     #[test]
-    fn bito_lint_overrides_bito_config() {
-        let tmp = TempDir::new().unwrap();
-        // .bito.toml sets debug
-        fs::write(tmp.path().join(".bito.toml"), r#"log_level = "debug""#).unwrap();
-        // .bito-lint.toml sets warn — should win
-        fs::write(tmp.path().join(".bito-lint.toml"), r#"log_level = "warn""#).unwrap();
-
-        let tmp_path = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-        let (config, sources) = ConfigLoader::new()
-            .with_user_config(false)
-            .without_boundary_marker()
-            .with_project_search(&tmp_path)
-            .load()
-            .unwrap();
-
-        assert_eq!(config.log_level, LogLevel::Warn);
-        assert_eq!(sources.project_files.len(), 2);
-    }
-
-    #[test]
-    fn bito_and_bito_lint_merge() {
-        let tmp = TempDir::new().unwrap();
-        // .bito.toml sets dialect
-        fs::write(tmp.path().join(".bito.toml"), "dialect = \"en-gb\"\n").unwrap();
-        // .bito-lint.toml sets log_level — both should be present
-        fs::write(tmp.path().join(".bito-lint.toml"), r#"log_level = "warn""#).unwrap();
-
-        let tmp_path = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-        let (config, _sources) = ConfigLoader::new()
-            .with_user_config(false)
-            .without_boundary_marker()
-            .with_project_search(&tmp_path)
-            .load()
-            .unwrap();
-
-        // Both values merged
-        assert_eq!(config.log_level, LogLevel::Warn);
-        assert_eq!(config.dialect, Some(Dialect::EnGb));
-    }
-
-    #[test]
-    fn dotfile_before_regular_same_app_name() {
-        let tmp = TempDir::new().unwrap();
-        // .bito-lint.toml sets debug (lower precedence — dotfile)
-        fs::write(tmp.path().join(".bito-lint.toml"), r#"log_level = "debug""#).unwrap();
-        // bito-lint.toml sets error (higher precedence — regular)
-        fs::write(tmp.path().join("bito-lint.toml"), r#"log_level = "error""#).unwrap();
-
-        let tmp_path = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
-
-        let (config, sources) = ConfigLoader::new()
-            .with_user_config(false)
-            .without_boundary_marker()
-            .with_project_search(&tmp_path)
-            .load()
-            .unwrap();
-
-        assert_eq!(config.log_level, LogLevel::Error);
-        assert_eq!(sources.project_files.len(), 2);
-    }
-
-    #[test]
     fn only_closest_directory_contributes() {
         let tmp = TempDir::new().unwrap();
         let parent = tmp.path().join("parent");
@@ -1057,7 +1011,7 @@ rules:
         // Config in parent
         fs::write(parent.join(".bito.toml"), r#"log_level = "warn""#).unwrap();
         // Config in child (closer) — only this dir should contribute
-        fs::write(child.join(".bito-lint.toml"), r#"log_level = "error""#).unwrap();
+        fs::write(child.join(".bito.toml"), r#"log_level = "error""#).unwrap();
 
         let child_path = Utf8PathBuf::try_from(child).unwrap();
 

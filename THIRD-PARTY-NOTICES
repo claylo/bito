@@ -1,7 +1,7 @@
 Third-Party Notices
 ===================
 
-bito-lint incorporates code from the following projects:
+bito incorporates code from the following projects:
 
 
 Rust_Grammar
@@ -9,7 +9,7 @@ Rust_Grammar
 https://github.com/Eeman1113/rust_grammar
 
 Portions of the grammar checking, passive voice detection, and dictionary
-modules (crates/bito-lint-core/src/grammar/, crates/bito-lint-core/src/dictionaries/)
+modules (crates/bito-core/src/grammar/, crates/bito-core/src/dictionaries/)
 are adapted from Rust_Grammar.
 
 MIT License

@@ -97,7 +97,7 @@ bootstrap:
     echo "  target/debug/bito --help"
 
 fmt:
-  cargo fmt --all
+  cargo fmt --all -- --config-path .config/rustfmt.toml
 
 clippy:
   cargo +{{toolchain}} clippy --all-targets --all-features --message-format=short -- -D warnings
@@ -108,7 +108,7 @@ fix:
 
 # Check dependencies for security advisories and license compliance
 deny:
-  cargo deny check
+  cargo deny check --config .config/deny.toml
 
 test:
   cargo nextest run
@@ -161,7 +161,6 @@ mdfix *files='':
         echo "Install rumdl (cargo bininstall rumdl) or markdownlint (npm i -g markdownlint-cli)"
         exit 1
     fi
-
 
 
 

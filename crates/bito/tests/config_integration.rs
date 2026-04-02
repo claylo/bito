@@ -52,7 +52,7 @@ fn runs_without_config_file() {
 #[test]
 fn discovers_dotfile_config_in_current_dir() {
     let tmp = TempDir::new().unwrap();
-    let config_path = tmp.path().join(".bito-lint.toml");
+    let config_path = tmp.path().join(".bito.toml");
     fs::write(&config_path, r#"log_level = "debug""#).unwrap();
 
     let json = info_json(tmp.path());
@@ -60,7 +60,7 @@ fn discovers_dotfile_config_in_current_dir() {
     assert_eq!(json["config"]["log_level"], "debug");
     let reported = json["config"]["config_file"].as_str().unwrap();
     assert!(
-        reported.ends_with(".bito-lint.toml"),
+        reported.ends_with(".bito.toml"),
         "should report dotfile: {reported}"
     );
 }
@@ -68,7 +68,7 @@ fn discovers_dotfile_config_in_current_dir() {
 #[test]
 fn discovers_regular_config_in_current_dir() {
     let tmp = TempDir::new().unwrap();
-    let config_path = tmp.path().join("bito-lint.toml");
+    let config_path = tmp.path().join("bito.toml");
     fs::write(&config_path, r#"log_level = "warn""#).unwrap();
 
     let json = info_json(tmp.path());
@@ -76,7 +76,7 @@ fn discovers_regular_config_in_current_dir() {
     assert_eq!(json["config"]["log_level"], "warn");
     let reported = json["config"]["config_file"].as_str().unwrap();
     assert!(
-        reported.ends_with("bito-lint.toml"),
+        reported.ends_with("bito.toml"),
         "should report regular config: {reported}"
     );
 }
@@ -88,7 +88,7 @@ fn discovers_config_in_parent_directory() {
     fs::create_dir_all(&sub_dir).unwrap();
 
     // Config in root, run from nested/deep
-    fs::write(tmp.path().join(".bito-lint.toml"), r#"log_level = "debug""#).unwrap();
+    fs::write(tmp.path().join(".bito.toml"), r#"log_level = "debug""#).unwrap();
 
     let json = info_json(&sub_dir);
 
@@ -100,18 +100,53 @@ fn discovers_config_in_parent_directory() {
 }
 
 #[test]
-fn regular_name_overrides_dotfile() {
+fn discovers_dotconfig_directory_config() {
     let tmp = TempDir::new().unwrap();
+    let dotconfig = tmp.path().join(".config");
+    fs::create_dir_all(&dotconfig).unwrap();
+    fs::write(dotconfig.join("bito.toml"), r#"log_level = "debug""#).unwrap();
 
-    // Both configs exist — regular file (higher precedence) should win
-    fs::write(tmp.path().join(".bito-lint.toml"), r#"log_level = "debug""#).unwrap();
-    fs::write(tmp.path().join("bito-lint.toml"), r#"log_level = "error""#).unwrap();
+    let json = info_json(tmp.path());
+
+    assert_eq!(json["config"]["log_level"], "debug");
+    let reported = json["config"]["config_file"].as_str().unwrap();
+    assert!(
+        reported.contains(".config/"),
+        "should report .config/ path: {reported}"
+    );
+}
+
+#[test]
+fn dotconfig_takes_precedence_over_dotfile() {
+    let tmp = TempDir::new().unwrap();
+    let dotconfig = tmp.path().join(".config");
+    fs::create_dir_all(&dotconfig).unwrap();
+
+    // .config/ gets debug, dotfile gets error — .config/ should win
+    fs::write(dotconfig.join("bito.toml"), r#"log_level = "debug""#).unwrap();
+    fs::write(tmp.path().join(".bito.toml"), r#"log_level = "error""#).unwrap();
 
     let json = info_json(tmp.path());
 
     assert_eq!(
-        json["config"]["log_level"], "error",
-        "regular file should override dotfile"
+        json["config"]["log_level"], "debug",
+        ".config/ should win over dotfile"
+    );
+}
+
+#[test]
+fn dotfile_takes_precedence_over_regular_name() {
+    let tmp = TempDir::new().unwrap();
+
+    // Both configs exist — dotfile is checked first and wins
+    fs::write(tmp.path().join(".bito.toml"), r#"log_level = "debug""#).unwrap();
+    fs::write(tmp.path().join("bito.toml"), r#"log_level = "error""#).unwrap();
+
+    let json = info_json(tmp.path());
+
+    assert_eq!(
+        json["config"]["log_level"], "debug",
+        "dotfile should win over regular name"
     );
 }
 
@@ -122,7 +157,7 @@ fn regular_name_overrides_dotfile() {
 #[test]
 fn parses_toml_config() {
     let tmp = TempDir::new().unwrap();
-    fs::write(tmp.path().join(".bito-lint.toml"), r#"log_level = "warn""#).unwrap();
+    fs::write(tmp.path().join(".bito.toml"), r#"log_level = "warn""#).unwrap();
 
     let json = info_json(tmp.path());
     assert_eq!(json["config"]["log_level"], "warn");
@@ -131,7 +166,7 @@ fn parses_toml_config() {
 #[test]
 fn parses_yaml_config() {
     let tmp = TempDir::new().unwrap();
-    fs::write(tmp.path().join(".bito-lint.yaml"), "log_level: warn\n").unwrap();
+    fs::write(tmp.path().join(".bito.yaml"), "log_level: warn\n").unwrap();
 
     let json = info_json(tmp.path());
     assert_eq!(json["config"]["log_level"], "warn");
@@ -140,7 +175,7 @@ fn parses_yaml_config() {
 #[test]
 fn parses_yml_config() {
     let tmp = TempDir::new().unwrap();
-    fs::write(tmp.path().join(".bito-lint.yml"), "log_level: debug\n").unwrap();
+    fs::write(tmp.path().join(".bito.yml"), "log_level: debug\n").unwrap();
 
     let json = info_json(tmp.path());
     assert_eq!(json["config"]["log_level"], "debug");
@@ -149,11 +184,7 @@ fn parses_yml_config() {
 #[test]
 fn parses_json_config() {
     let tmp = TempDir::new().unwrap();
-    fs::write(
-        tmp.path().join(".bito-lint.json"),
-        r#"{"log_level": "error"}"#,
-    )
-    .unwrap();
+    fs::write(tmp.path().join(".bito.json"), r#"{"log_level": "error"}"#).unwrap();
 
     let json = info_json(tmp.path());
     assert_eq!(json["config"]["log_level"], "error");
@@ -170,8 +201,8 @@ fn closer_config_takes_precedence() {
     fs::create_dir_all(&sub_dir).unwrap();
 
     // Parent config (error) vs child config (debug) — child should win
-    fs::write(tmp.path().join(".bito-lint.toml"), r#"log_level = "error""#).unwrap();
-    fs::write(sub_dir.join(".bito-lint.toml"), r#"log_level = "debug""#).unwrap();
+    fs::write(tmp.path().join(".bito.toml"), r#"log_level = "error""#).unwrap();
+    fs::write(sub_dir.join(".bito.toml"), r#"log_level = "debug""#).unwrap();
 
     let json = info_json(&sub_dir);
 
@@ -182,17 +213,17 @@ fn closer_config_takes_precedence() {
 }
 
 #[test]
-fn later_extension_overrides_earlier_in_same_directory() {
+fn first_extension_wins_in_same_directory() {
     let tmp = TempDir::new().unwrap();
 
-    // Both dotfiles exist — YAML comes after TOML in merge order, so it wins
-    fs::write(tmp.path().join(".bito-lint.toml"), r#"log_level = "debug""#).unwrap();
-    fs::write(tmp.path().join(".bito-lint.yaml"), "log_level: error\n").unwrap();
+    // Both dotfiles exist — TOML is checked first and wins
+    fs::write(tmp.path().join(".bito.toml"), r#"log_level = "debug""#).unwrap();
+    fs::write(tmp.path().join(".bito.yaml"), "log_level: error\n").unwrap();
 
     let json = info_json(tmp.path());
     assert_eq!(
-        json["config"]["log_level"], "error",
-        "later extension (YAML) should override earlier (TOML) in merge"
+        json["config"]["log_level"], "debug",
+        "first extension (TOML) should win"
     );
 }
 
@@ -201,7 +232,7 @@ fn explicit_config_overrides_discovered() {
     let tmp = TempDir::new().unwrap();
 
     // Project config sets debug
-    fs::write(tmp.path().join(".bito-lint.toml"), r#"log_level = "debug""#).unwrap();
+    fs::write(tmp.path().join(".bito.toml"), r#"log_level = "debug""#).unwrap();
 
     // Explicit config sets error
     let explicit = tmp.path().join("override.toml");
@@ -239,11 +270,7 @@ fn explicit_config_overrides_discovered() {
 #[test]
 fn invalid_toml_config_shows_error() {
     let tmp = TempDir::new().unwrap();
-    fs::write(
-        tmp.path().join(".bito-lint.toml"),
-        "this is not valid toml [[[",
-    )
-    .unwrap();
+    fs::write(tmp.path().join(".bito.toml"), "this is not valid toml [[[").unwrap();
 
     cmd()
         .args(["-C", tmp.path().to_str().unwrap(), "info"])
@@ -256,7 +283,7 @@ fn invalid_toml_config_shows_error() {
 fn invalid_yaml_config_shows_error() {
     let tmp = TempDir::new().unwrap();
     fs::write(
-        tmp.path().join(".bito-lint.yaml"),
+        tmp.path().join(".bito.yaml"),
         "invalid:\n  yaml\n content:\n[broken",
     )
     .unwrap();
@@ -270,7 +297,7 @@ fn invalid_yaml_config_shows_error() {
 #[test]
 fn invalid_json_config_shows_error() {
     let tmp = TempDir::new().unwrap();
-    fs::write(tmp.path().join(".bito-lint.json"), "{not valid json}").unwrap();
+    fs::write(tmp.path().join(".bito.json"), "{not valid json}").unwrap();
 
     cmd()
         .args(["-C", tmp.path().to_str().unwrap(), "info"])
@@ -283,7 +310,7 @@ fn unknown_config_field_is_ignored() {
     // Figment ignores unknown fields by default with serde
     let tmp = TempDir::new().unwrap();
     fs::write(
-        tmp.path().join(".bito-lint.toml"),
+        tmp.path().join(".bito.toml"),
         "log_level = \"info\"\nunknown_field = \"should be ignored\"\nanother_unknown = 42\n",
     )
     .unwrap();
@@ -307,7 +334,7 @@ fn git_boundary_stops_config_search() {
     fs::create_dir_all(&src).unwrap();
 
     // Config in parent (outside repo)
-    fs::write(parent.join(".bito-lint.toml"), r#"log_level = "error""#).unwrap();
+    fs::write(parent.join(".bito.toml"), r#"log_level = "error""#).unwrap();
 
     // .git directory marks repo boundary
     fs::create_dir(repo.join(".git")).unwrap();
@@ -334,7 +361,7 @@ fn config_in_same_dir_as_git_is_found() {
 
     // .git and config in same directory
     fs::create_dir(repo.join(".git")).unwrap();
-    fs::write(repo.join(".bito-lint.toml"), r#"log_level = "debug""#).unwrap();
+    fs::write(repo.join(".bito.toml"), r#"log_level = "debug""#).unwrap();
 
     // Running from src/ should find the repo config
     let json = info_json(&src);
