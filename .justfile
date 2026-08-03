@@ -6,98 +6,11 @@ msrv := "1.89.0"
 default:
   @just --list
 
-# First-time project setup after cloning
-bootstrap:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    # Find bootstrap hook by walking up from current directory to /
-    # See: docs/tasks.md for hook documentation
-    find_bootstrap_hook() {
-        local dir="$PWD"
-        while [[ "$dir" != "/" ]]; do
-            if [[ -f "$dir/.claylo-rs.bootstrap.sh" ]]; then
-                echo "$dir/.claylo-rs.bootstrap.sh"
-                return 0
-            fi
-            dir="$(dirname "$dir")"
-        done
-        # Check root as well
-        if [[ -f "/.claylo-rs.bootstrap.sh" ]]; then
-            echo "/.claylo-rs.bootstrap.sh"
-            return 0
-        fi
-        return 1
-    }
-
-    # Source custom bootstrap hook if found
-    SKIP_HOOK_INSTALL=false
-    post_bootstrap() { :; }  # no-op default
-    if bootstrap_hook="$(find_bootstrap_hook)"; then
-        echo "📎 Loading $bootstrap_hook..."
-        source "$bootstrap_hook"
-    fi
-
-    echo "🔧 Bootstrapping bito..."
-    echo ""
-    # Check Rust version
-    installed=$(rustc --version | awk '{print $2}')
-    echo "📦 Rust version: $installed (MSRV: {{msrv}})"
-    if [[ "$(printf '%s\n' "{{msrv}}" "$installed" | sort -V | head -n1)" != "{{msrv}}" ]]; then
-        echo "⚠️  Warning: Installed Rust $installed is older than MSRV {{msrv}}"
-        echo "   Run: rustup update stable"
-    fi
-    echo ""
-
-    # Install git hooks (pre-commit)
-    if [[ "$SKIP_HOOK_INSTALL" != "true" ]]; then
-        echo "🪝 Installing git hooks (pre-commit)..."
-        pre-commit install 2>/dev/null || echo "   (pre-commit not installed, run: pip install pre-commit)"
-    else
-        echo "⏭️  Skipping hook installation (SKIP_HOOK_INSTALL=true)"
-    fi
-
-    echo ""
-    # Format (Jinja templating can produce non-canonical import ordering)
-    echo "🔨 Formatting source..."
-    cargo fmt --all
-    echo ""
-    # Build
-    echo "🔨 Building project..."
-    cargo build --workspace
-
-    echo ""
-    # Generate completions and man pages
-    echo "📝 Generating shell completions..."
-    cargo xtask completions
-    echo ""
-    echo "📖 Generating man pages..."
-    cargo xtask man
-    echo ""
-
-    # Configure repository settings via gh-coda
-    if command -v gh &>/dev/null && gh extension list 2>/dev/null | grep -q coda; then
-        echo "⚙️  Applying repository settings (gh coda)..."
-        gh coda setup 2>/dev/null || echo "   (gh coda setup failed, run manually: gh coda setup)"
-    else
-        echo "ℹ️  gh-coda not installed. Install with: gh extension install lovelesslabs/gh-coda"
-    fi
-    echo ""
-
-    # Run custom post-bootstrap hook if defined
-    post_bootstrap
-
-    echo "✅ Bootstrap complete!"
-    echo ""
-    echo "Next steps:"
-    echo "  just check     - Run all the things (fmt, clippy, deny, test, doc-test)"
-    echo "  just test      - Run tests only"
-    echo ""
-    echo "Try it out:"
-    echo "  target/debug/bito --help"
-
 fmt:
   cargo fmt --all -- --config-path .config/rustfmt.toml
+
+fmt-check:
+  cargo fmt --all --check -- --config-path .config/rustfmt.toml
 
 clippy:
   cargo +{{toolchain}} clippy --all-targets --all-features --message-format=short -- -D warnings
@@ -108,16 +21,19 @@ fix:
 
 # Check dependencies for security advisories and license compliance
 deny:
-  cargo deny check --config .config/deny.toml
+  cargo deny --all-features --config .config/deny.toml check
 
 test:
   cargo nextest run
 
 test-ci:
-  cargo nextest run --profile ci
+  cargo nextest run --workspace --profile ci
 
 doc-test:
-  cargo test --doc
+  cargo test --doc --all-features
+  
+doc:
+  cargo doc --all-features --no-deps
 
 cov:
   @cargo llvm-cov clean --workspace
@@ -126,7 +42,7 @@ cov:
   @cargo llvm-cov report --html
   @cargo llvm-cov report --summary-only --json --output-path target/llvm-cov/summary.json
 
-check: fmt clippy deny test doc-test
+check: fmt clippy deny test doc-test doc
 
 # Watch for changes and run tests (requires cargo-watch)
 watch *args='':
