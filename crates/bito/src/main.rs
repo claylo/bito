@@ -3,7 +3,6 @@
 
 use anyhow::Context;
 use bito::{Cli, Commands, commands};
-use bito_core::config::ConfigLoader;
 use clap::FromArgMatches;
 use tracing::debug;
 
@@ -37,17 +36,21 @@ fn main() -> anyhow::Result<()> {
             e.into_path_buf().display()
         )
     })?;
-    let mut loader = ConfigLoader::new().with_project_search(&cwd);
-    if let Some(ref config_path) = cli.config {
-        let config_path = camino::Utf8PathBuf::try_from(config_path.clone()).map_err(|e| {
-            anyhow::anyhow!(
-                "config path is not valid UTF-8: {}",
-                e.into_path_buf().display()
-            )
-        })?;
-        loader = loader.with_file(&config_path);
-    }
-    let (config, config_sources) = loader.load().context("failed to load configuration")?;
+    let config_path = cli
+        .config
+        .as_ref()
+        .map(|p| {
+            camino::Utf8PathBuf::try_from(p.clone()).map_err(|e| {
+                anyhow::anyhow!(
+                    "config path is not valid UTF-8: {}",
+                    e.into_path_buf().display()
+                )
+            })
+        })
+        .transpose()?;
+
+    let (config, config_sources) = bito_core::config::load(&cwd, config_path.as_deref())
+        .context("failed to load configuration")?;
 
     let obs_config = observability::ObservabilityConfig::from_env_with_overrides(
         env!("CARGO_PKG_NAME"),

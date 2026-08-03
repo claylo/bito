@@ -20,6 +20,14 @@
 - `just check` runs `fmt clippy deny test doc-test doc`. Run it before the final commit of each task.
 - Clippy is `-D warnings` with `nursery` + `all` enabled at workspace level. Warnings fail the build.
 - **Never** hand-edit a version number in any `Cargo.toml`. Versions are release-tooling's job.
+- **What the existing test suites are for.** They are a regression net for a
+  ten-task refactor, not a contract with a user base — bito has one real user.
+  So: a test that fails because behavior changed *on purpose* gets updated, and
+  the change gets changelogged. A test that fails because something broke by
+  accident is the whole point of running them. The discipline is noticing which
+  one you're looking at, not treating every red test as sacred. Where a later
+  task deliberately changes behavior (Task 5's `--format auto`, Task 6a's exit
+  codes), editing the test is expected.
 - Write commit messages to `commit.txt` in conventional-commit format and stop. Clay runs `gtxt` himself. Do not run `git commit`.
 - Import shared types through librebar's re-exports (`librebar::cli::clap`, `librebar::camino`), not direct dependencies, so versions match what librebar was compiled against.
 
@@ -1582,6 +1590,11 @@ Add under an `### Changed` heading in the unreleased section:
   permissions. Rotated files are renamed with a date suffix and zstd
   compressed. bito no longer falls back to writing logs into the current
   working directory when `HOME` is unset.
+- A config file named with `-c` now takes precedence over `BITO_*` environment
+  variables. The previous loader merged the environment last, so an exported
+  variable silently overrode an explicitly requested file. Discovery is
+  unchanged: `BITO_*` still overrides a project or user config found by
+  walking up.
 - Commands that check a threshold — `analyze`, `readability`, `grammar`,
   `tokens`, `completeness`, and `lint` — now exit **2** when the input does not
   meet it, and print the finding without an `Error:` prefix. Exit **1** now
@@ -1660,7 +1673,7 @@ Create `~/source/claylo/librebar/docs/adoption/claylo-rs-to-librebar.md` coverin
 3. **Inventory of what to delete** — with the recognition heuristics for each: `observability.rs` (check for `days_to_ymd` and `LOG_FILE_SUFFIX`, the fork markers), the figment `ConfigLoader`, hand-rolled `ColorChoice` and global flags, bespoke doctor report structs.
 4. **Ordered steps** — fix independent live bugs first, then deps, then config, then logging, then CLI, then xtask, then doctor, then update checks, then docs.
 5. **Traps** — at minimum, everything in Step 3 below.
-6. **The compatibility gate** — existing integration tests must pass *unmodified*; they encode released behavior. Editing a test to match new behavior is how you ship a silent break.
+6. **The regression net** — existing integration tests should pass unmodified through refactor-only tasks, and get updated (plus changelogged) where a task changes behavior deliberately. The value is catching the *accidental* break in a ten-task migration, not defending a contract. Say which kind of project you're in: a widely-depended-on library warrants the stricter reading, a single-user tool does not.
 
 - [ ] **Step 3: Record the known traps**
 
