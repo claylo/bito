@@ -9,8 +9,7 @@ use tracing::debug;
 
 use bito_core::observability;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::from_arg_matches(&bito::command().get_matches())
         .expect("clap mismatch between Cli derive and command()");
 
