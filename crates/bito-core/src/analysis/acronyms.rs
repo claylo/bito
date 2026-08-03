@@ -1,5 +1,6 @@
 //! Acronym frequency analysis.
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
@@ -27,7 +28,7 @@ pub fn analyze_acronyms(text: &str) -> AcronymReport {
         .into_iter()
         .map(|(acronym, count)| AcronymCount { acronym, count })
         .collect();
-    acronym_list.sort_by(|a, b| b.count.cmp(&a.count));
+    acronym_list.sort_by_key(|x| Reverse(x.count));
 
     AcronymReport {
         total_acronyms,

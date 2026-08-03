@@ -1,5 +1,6 @@
 //! Business jargon detection.
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use crate::word_lists::{BUSINESS_JARGON, BUSINESS_JARGON_PHRASES};
@@ -34,7 +35,7 @@ pub fn analyze_business_jargon(text: &str, words: &[String]) -> BusinessJargonRe
         .into_iter()
         .map(|(jargon, count)| JargonFound { jargon, count })
         .collect();
-    jargon_list.sort_by(|a, b| b.count.cmp(&a.count));
+    jargon_list.sort_by_key(|x| Reverse(x.count));
 
     BusinessJargonReport {
         total_jargon,

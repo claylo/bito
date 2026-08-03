@@ -1,5 +1,6 @@
 //! Transition word usage analysis.
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use crate::word_lists::{TRANSITION_PHRASES, TRANSITION_WORDS};
@@ -57,7 +58,7 @@ pub fn analyze_transitions(sentences: &[String]) -> TransitionReport {
         .into_iter()
         .map(|(transition, count)| TransitionCount { transition, count })
         .collect();
-    most_common.sort_by(|a, b| b.count.cmp(&a.count));
+    most_common.sort_by_key(|x| Reverse(x.count));
 
     let total = sentences.len() as f64;
     TransitionReport {

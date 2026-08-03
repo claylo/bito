@@ -293,7 +293,7 @@ pub fn estimate_syllables(word: &str) -> usize {
     }
 
     let word = word.to_lowercase();
-    let vowels = [b'a', b'e', b'i', b'o', b'u', b'y'];
+    let vowels = *b"aeiouy";
     let bytes = word.as_bytes();
     let mut syllables: usize = 0;
     let mut previous_was_vowel = false;
