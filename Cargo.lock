@@ -1177,9 +1177,9 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "librebar"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb9f3e5c760e0b24065f5be9acc9fa1e4786f3f49ca43f4eb203d64f68c7ebb9"
+checksum = "99c5733e9a3a8e03dac5982a51a15b3da5ae17bab2f687b9e8e368aa743bb82a"
 dependencies = [
  "async-trait",
  "base64 0.23.0",

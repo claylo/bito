@@ -1,12 +1,12 @@
-# librebar 0.4.0 Adoption Implementation Plan
+# librebar Adoption Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace bito's hand-rolled CLI scaffolding, config loader, and logging stack with librebar 0.4.0, fixing a broken MCP server and four log-file defects along the way.
+**Goal:** Replace bito's hand-rolled CLI scaffolding, config loader, and logging stack with librebar, fixing a broken MCP server and four log-file defects along the way.
 
 **Architecture:** librebar goes into both crates, split by which one owns global process state. `bito-core` gets `config` only (domain logic, no globals) and keeps its config *types*. `bito` gets `cli`, `logging`, `crash`, `diagnostics`, `update` (each installs a process-wide singleton). Cargo unifies features per build graph, so librebar compiles once. `main` hands its already-loaded config to librebar's builder via `with_config`, keeping the core authoritative over config semantics.
 
-**Tech Stack:** Rust 2024 edition, librebar 0.4.0, clap 4.6 (via `librebar::cli::clap`), camino, cargo-nextest, assert_cmd, predicates, tempfile.
+**Tech Stack:** Rust 2024 edition, librebar 0.5.0, clap 4.6 (via `librebar::cli::clap`), camino, cargo-nextest, assert_cmd, predicates, tempfile.
 
 **Spec:** `record/superpowers/specs/2026-08-03-librebar-adoption-design.md`
 
@@ -173,7 +173,7 @@ Then tell Clay to run `gtxt`.
 In `crates/bito-core/Cargo.toml`, under `[dependencies]`, add:
 
 ```toml
-librebar = { version = "0.4", default-features = false, features = ["config"] }
+librebar = { version = "0.5", default-features = false, features = ["config"] }
 ```
 
 **Correction (applied during execution).** This step originally also removed
@@ -195,7 +195,7 @@ Keep `camino` for now; Task 4 switches it to librebar's re-export.
 In `crates/bito/Cargo.toml`, under `[dependencies]`, add:
 
 ```toml
-librebar = { version = "0.4", features = [
+librebar = { version = "0.5", features = [
     "cli", "config", "logging", "crash", "diagnostics", "update",
 ] }
 ```
@@ -221,7 +221,7 @@ Expected: success. `bito-core` will still compile because nothing imports libreb
 - [ ] **Step 5: Write commit.txt**
 
 ```
-build(deps): add librebar 0.4, drop figment and tracing subscriber
+build(deps): add librebar, drop figment and tracing subscriber
 
 librebar goes into both crates, split by which one owns global
 process state. bito-core takes config only, since discovery and
@@ -901,7 +901,7 @@ This returns the same augmented command tree that `parse` uses, so generated com
 In `xtask/Cargo.toml` under `[dependencies]`:
 
 ```toml
-librebar = { version = "0.4", default-features = false, features = ["cli"] }
+librebar = { version = "0.5", default-features = false, features = ["cli"] }
 ```
 
 - [ ] **Step 5: Verify xtask builds and generates**
@@ -1758,9 +1758,49 @@ rename.
 
 ## Follow-on work (do not implement here)
 
-- **rmcp 1.3 → 3.1.** librebar 0.4 re-exports rmcp 3.1. `call_tool` returns `CallToolResponse`; protocol metadata, annotations, and structured tool results all changed shape. Its own change, its own testing.
-- **`-c/--config` upstream.** Clay is considering adding a config-file flag to librebar's `CommonArgs`. When that lands, bito drops its bespoke one.
-- **Log pruning upstream.** librebar compresses rotated logs but never prunes. Belongs in librebar so every consumer benefits, rather than each reinventing it.
+- **rmcp 1.3 → 3.1.** librebar re-exports rmcp 3.1. `call_tool` returns `CallToolResponse`; protocol metadata, annotations, and structured tool results all changed shape. Its own change, its own testing.
+- ~~**`-c/--config` upstream.**~~ **Landed in librebar 0.5.0.** See below.
+- ~~**Log pruning upstream.**~~ **Landed in librebar 0.5.0.** See below.
+
+---
+
+## What librebar 0.5.0 changes for the remaining tasks
+
+Three gaps found during Tasks 2-3 were fixed upstream and released. bito is on
+`librebar = "0.5"` as of the Task 3 follow-up; the affected tasks below assume
+these exist.
+
+| Landed in 0.5.0 | Affects |
+|---|---|
+| `CommonArgs` gains `-c/--config <FILE>` + `config_path()` | Task 5 |
+| `config::user_data_local_dir(app)` | Task 4 |
+| Rotated-log pruning, `log_retention_days`, 7-day default | Tasks 4 and 9 |
+
+**Task 4 — `directories` can now leave `bito-core` entirely.** The removal step
+carved out `user_data_local_dir` as the one function with no librebar
+equivalent. There is one now, so delegate it like its three siblings and drop
+the dependency outright.
+
+**Task 4 — decide bito's retention policy.** librebar now prunes rotated logs
+after seven days by default. Either accept it or add a `log_retention_days`
+field to bito's `Config`; the builder reads that field name automatically.
+Setting it to `0` disables pruning. Note that absent and `null` both mean
+"use the default" — only `0` is the opt-out.
+
+**Task 5 — drop bito's bespoke `-c/--config`.** `crates/bito/src/lib.rs` defines
+its own `config: Option<PathBuf>`. `CommonArgs` now carries it, and flattening
+both is a clap "argument names must be unique" panic at startup, not a compile
+error. Delete bito's before flattening.
+
+**Task 5 — `main.rs` loses its UTF-8 conversion block.** `config_path()` returns
+`Result<Option<Utf8PathBuf>>` directly, replacing the `Utf8PathBuf::try_from`
+plus `anyhow!` dance. Non-UTF-8 paths now surface as `Error::PathNotUtf8`
+rather than being silently dropped.
+
+**Task 9 — changelog the retention default.** bito starts deleting rotated logs
+older than a week. Nobody is affected yet, since bito has not shipped with
+librebar, but it belongs in the same `### Changed` block as the other behavior
+notes.
 
 ---
 
@@ -1770,4 +1810,4 @@ rename.
 
 **Placeholders:** None. Task 7 Step 3 instructs reusing existing dictionary call sites rather than naming APIs not yet verified, which is a deliberate instruction, not a gap.
 
-**Type consistency:** `CheckResult::new(CheckStatus, message)`, `DoctorCheck::{name, category, run}`, `DoctorRunner::{new, add, run_all, summarize, format_report}`, `ConfigSources::primary_file()`, `librebar::logging::resolve_log_target_with(service, path, dir, config)`, `UpdateChecker::{github, is_suppressed, check}` and `UpdateInfo::message()` all match the signatures read from librebar 0.4.0 source.
+**Type consistency:** `CheckResult::new(CheckStatus, message)`, `DoctorCheck::{name, category, run}`, `DoctorRunner::{new, add, run_all, summarize, format_report}`, `ConfigSources::primary_file()`, `librebar::logging::resolve_log_target_with(service, path, dir, config)`, `UpdateChecker::{github, is_suppressed, check}` and `UpdateInfo::message()` all match the signatures read from librebar source (verified against 0.4.0; 0.5.0 is additive for everything here).
