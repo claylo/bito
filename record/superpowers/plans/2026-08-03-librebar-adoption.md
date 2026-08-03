@@ -159,7 +159,7 @@ Then tell Clay to run `gtxt`.
 - Modify: `crates/bito-core/Cargo.toml`
 - Modify: `crates/bito/Cargo.toml`
 
-- [ ] **Step 1: Add librebar to bito-core, remove superseded deps**
+- [ ] **Step 1: Add librebar to bito-core**
 
 In `crates/bito-core/Cargo.toml`, under `[dependencies]`, add:
 
@@ -167,14 +167,17 @@ In `crates/bito-core/Cargo.toml`, under `[dependencies]`, add:
 librebar = { version = "0.4", default-features = false, features = ["config"] }
 ```
 
-Remove these four lines — librebar supplies or supersedes all of them:
+**Correction (applied during execution).** This step originally also removed
+`directories`, `figment`, `tracing-appender`, and `tracing-subscriber` here.
+That is wrong: `config.rs` still calls `Figment::new()` and `observability.rs`
+still builds a `tracing_subscriber::registry()` at this point, so the removal
+breaks Step 4's build gate. Task 2 adds only. Each removal now lives in the
+task that deletes its last import:
 
-```toml
-directories = "6.0"
-figment = { version = "0.10", features = ["toml", "yaml", "json", "env"] }
-tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-```
+| Dependency | Removed in |
+|---|---|
+| `figment` | Task 3, after the config loader is gone |
+| `tracing-appender`, `tracing-subscriber`, `directories` | Task 4, after observability is gone |
 
 Keep `camino` for now; Task 4 switches it to librebar's re-export.
 
@@ -341,7 +344,27 @@ Expected: dialect reports `en-gb`; both other commands exit 0.
 
 This checks the spec's open item. librebar splits on `__` for nesting and preserves single underscores, so `BITO_LOG_LEVEL` must map to the `log_level` field. If an unrelated `BITO_*` variable in the environment causes an error, set librebar's `UnknownEnvironment` policy to lenient explicitly and note it in the commit body.
 
-- [ ] **Step 7: Full test run and check**
+- [ ] **Step 7: Drop figment from bito-core** *(moved here from Task 2)*
+
+Nothing imports figment once the loader is gone. In
+`crates/bito-core/Cargo.toml`, remove:
+
+```toml
+figment = { version = "0.10", features = ["toml", "yaml", "json", "env"] }
+```
+
+Then confirm the last import is really gone:
+
+```bash
+grep -rn figment crates/ && echo "STILL REFERENCED" || echo clean
+```
+
+Watch `crates/bito-core/src/error.rs`, which carries
+`Deserialize(#[from] Box<figment::Error>)`. That variant is public API, so
+replacing the payload type is a **breaking change to `bito-core`**, not an
+internal swap. Keep the variant name and take librebar's config error instead.
+
+- [ ] **Step 8: Full test run and check**
 
 ```bash
 cargo nextest run && just check
@@ -349,7 +372,7 @@ cargo nextest run && just check
 
 Expected: all pass.
 
-- [ ] **Step 8: Write commit.txt**
+- [ ] **Step 9: Write commit.txt**
 
 ```
 refactor(config): load configuration through librebar
@@ -531,13 +554,30 @@ ls -la /tmp/bito-logtest/
 
 Expected: exactly `bito.jsonl`, mode `-rw-------`. Rotation to `bito.jsonl.<date>.zst` only happens on a day boundary, so a same-day run shows one file. Clean up with `rm -rf /tmp/bito-logtest`.
 
-- [ ] **Step 7: Full test run and check**
+- [ ] **Step 7: Drop the tracing subscriber stack and `directories`** *(moved here from Task 2)*
+
+With `observability.rs` deleted, `crates/bito-core/Cargo.toml` loses:
+
+```toml
+directories = "6.0"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+```
+
+Keep plain `tracing = "0.1"` — the crate still emits spans and events; only the
+subscriber wiring moves to librebar. Verify:
+
+```bash
+grep -rn "tracing_subscriber\|tracing_appender\|directories::" crates/ && echo "STILL REFERENCED" || echo clean
+```
+
+- [ ] **Step 8: Full test run and check**
 
 ```bash
 cargo nextest run && just check
 ```
 
-- [ ] **Step 8: Write commit.txt**
+- [ ] **Step 9: Write commit.txt**
 
 ```
 fix(logging): hand log file handling to librebar

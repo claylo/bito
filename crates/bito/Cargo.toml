@@ -45,6 +45,14 @@ mcp = ["dep:tokio", "dep:rmcp", "dep:schemars"]
 [dependencies]
 bito-core = { version = "1.0", path = "../bito-core", features = ["clap"] }
 clap = { version = "4.6", features = ["derive"] }
+librebar = { version = "0.4", features = [
+    "cli",
+    "config",
+    "logging",
+    "crash",
+    "diagnostics",
+    "update",
+] }
 anyhow = "1.0"
 tracing = "0.1"
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros"], optional = true }
