@@ -29,8 +29,9 @@
 
 | Path | Responsibility after this plan |
 |---|---|
-| `crates/bito/src/main.rs` | Parse, apply common args, ask core for config, wire librebar builder, dispatch |
-| `crates/bito/src/lib.rs` | `Cli` struct (flattening `CommonArgs`) + `Commands` enum only |
+| `crates/bito/src/main.rs` | Parse, apply common args, ask core for config, wire librebar builder, dispatch, map outcome vs error to exit code |
+| `crates/bito/src/lib.rs` | `Cli` struct (flattening `CommonArgs`) + `Commands` enum + `IssuesFound` / `schema_metadata()` |
+| `crates/bito-core/src/error.rs` | Own error enums, `#[non_exhaustive]`, foreign errors boxed behind `BoxError` |
 | `crates/bito/src/commands/doctor.rs` | `DoctorCheck` impls + `--bundle` wiring |
 | `crates/bito/src/commands/update_check.rs` | **new** — shared update-check helper for `info` and `doctor` |
 | `crates/bito-core/src/config.rs` | Config *types* + thin `load()` over librebar's loader |
@@ -286,17 +287,88 @@ Then add this function at the end of the file:
 ///
 /// Returns an error if a config file cannot be read or parsed, or if the
 /// merged result cannot be deserialized into [`Config`].
-pub fn load(
-    cwd: &Utf8Path,
-    explicit: Option<&Utf8Path>,
-) -> Result<(Config, ConfigSources), librebar::Error> {
+pub fn load(cwd: &Utf8Path, explicit: Option<&Utf8Path>) -> ConfigResult<(Config, ConfigSources)> {
     let mut loader = librebar::config::ConfigLoader::new("bito").with_project_search(cwd);
     if let Some(path) = explicit {
         loader = loader.with_file(path);
     }
-    loader.load::<Config>()
+    loader
+        .load::<Config>()
+        .map_err(|error| ConfigError::Load(Box::new(error)))
 }
 ```
+
+**Correction (applied during review).** This signature originally returned
+`Result<(Config, ConfigSources), librebar::Error>`. That leaks librebar into
+`bito-core`'s public API and repeats the exact mistake this task exists to fix:
+it trades a figment version dependency for a librebar one. Every librebar
+major would then become a breaking change for `bito-core` consumers, and
+`ConfigError` — which exists to be bito's own error vocabulary — would be
+bypassed entirely.
+
+librebar's own `error.rs` documents the rule it follows and bito should too:
+
+```rust
+/// Opaque error source used at public dependency boundaries.
+///
+/// The concrete error remains available for `std::error::Error::source`
+/// traversal and downcasting without making its crate or version part of a
+/// librebar error enum's layout.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+```
+
+- [ ] **Step 3a: Rework `ConfigError` to stop leaking foreign error types** *(added during review)*
+
+In `crates/bito-core/src/error.rs`, replace the figment-typed variant. The old
+one names a foreign type in a public enum:
+
+```rust
+/// Failed to deserialize configuration.
+#[error("invalid configuration: {0}")]
+Deserialize(#[from] Box<figment::Error>),
+```
+
+The replacement carries the same information without naming anyone's crate:
+
+```rust
+/// Opaque error source used at public dependency boundaries.
+///
+/// The concrete error stays reachable through [`std::error::Error::source`]
+/// and `downcast_ref`, but its crate and version are not part of
+/// [`ConfigError`]'s layout.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
+/// Configuration could not be discovered, parsed, or deserialized.
+#[error("invalid configuration")]
+Load(#[source] BoxError),
+```
+
+Two details that matter:
+
+- **Rename `Deserialize` → `Load`.** The variant now covers discovery, parse,
+  environment overlay, and deserialization, not just the last one. Keeping the
+  old name would misdescribe three of the four.
+- **`#[source]`, not `{0}` in the format string.** librebar's messages are
+  layered — `Error::ConfigValue` renders as `invalid configuration at
+  rules.0.checks.0 from bito.toml` and delegates the serde detail to its own
+  source. Interpolating the source into the parent message duplicates it, which
+  is why the current output prints the same sentence twice under
+  `Caused by: 0:` and `1:`. Let `anyhow` walk the chain.
+
+Add `#[non_exhaustive]` to **both** `ConfigError` and `AnalysisError` while
+here. librebar marks every error enum this way; bito marks none, so adding a
+single variant to either is a breaking change today. This task already breaks
+`bito-core`'s API, so it is the free moment to stop the next one.
+
+Then fix the single construction site (`config.rs:430` today) and confirm there
+are no others:
+
+```bash
+grep -rn "ConfigError::Deserialize" crates/ && echo "STILL REFERENCED" || echo clean
+```
+
+`ConfigError::Deserialize` is constructed in exactly one place and matched on
+nowhere, so the blast radius inside the workspace is one line.
 
 - [ ] **Step 4: Update `main.rs` to call the new loader**
 
@@ -331,6 +403,21 @@ cargo nextest run --test config_integration
 Expected: all 20 tests PASS, unmodified.
 
 If `unknown_config_field_is_ignored` fails, librebar's unknown-field handling is stricter than figment's. Pin it lenient rather than editing the test — the test encodes released behavior.
+
+**Open item resolved (read from librebar source during review).** No action is
+expected here. `UnknownEnvironment` has two variants, `Ignore` and `Collect`,
+and `ConfigLoader::default()` sets `Ignore` — which matches figment's silent
+tolerance. The check in `config/environment.rs` is:
+
+```rust
+if !known && unknown == UnknownEnvironment::Ignore {
+    continue;
+}
+```
+
+It skips *before* decoding, so an unknown `BITO_*` variable is never even
+UTF-8 validated, let alone type-coerced. `with_unknown_environment` exists if
+the policy ever needs pinning explicitly, but the default is already correct.
 
 - [ ] **Step 6: Verify env var compatibility explicitly**
 
@@ -839,6 +926,240 @@ Then tell Clay to run `gtxt`.
 
 ---
 
+## Task 6a: Separate "issues found" from "bito failed"
+
+*Added during review. Not in the original spec.*
+
+bito signals every threshold failure with `anyhow::bail!`, which reaches
+`main() -> anyhow::Result<()>` and exits **1** — the same code, and the same
+`Error:` stderr prefix, as a malformed config file or an unreadable path. An
+agent calling `bito lint` cannot tell "your prose needs work" from "bito is
+broken." Both were verified by hand against the current binary.
+
+This is not one site. Six commands report data through the error channel, and
+two report genuine errors through the same one:
+
+| Site | Condition | Category |
+|---|---|---|
+| `analyze.rs:220` | style score below minimum | outcome |
+| `readability.rs:46` | grade above maximum | outcome |
+| `grammar.rs:91` | passive voice above maximum | outcome |
+| `tokens.rs:50` | over token budget | outcome |
+| `completeness.rs:66` | template check failed | outcome |
+| `lint.rs:138` | lint checks failed | outcome |
+| `analyze.rs:250` | unknown check names | **error** |
+| `mod.rs` | input exceeds size limit | **error** |
+
+librebar already carries the vocabulary for the split. `OutcomeMetadata` is
+documented as "a documented non-zero exit that represents data rather than
+failure"; `ErrorMetadata` carries `kind`, `exit_code`, and `retryable`. And
+`validate_metadata` refuses to build a schema where an outcome and an error
+claim the same code, so the distinction cannot silently rot.
+
+**Note on the compatibility gate.** `tests/cli.rs` asserts `.failure()`, which
+is true for *any* non-zero code. It would not have caught this change, and did
+not pin the old behavior. Task 3 and Task 5's "must pass unmodified" gate is
+weaker than it reads — it constrains success/failure, not exit codes.
+
+**Files:**
+- Modify: `crates/bito/src/lib.rs` (new `IssuesFound` type, `schema_metadata()`)
+- Modify: `crates/bito/src/main.rs`
+- Modify: `crates/bito/src/commands/{analyze,readability,grammar,tokens,completeness,lint}.rs`
+- Test: `crates/bito/tests/cli.rs` (extended, not rewritten)
+
+- [ ] **Step 1: Write the failing tests first**
+
+Add to `crates/bito/tests/cli.rs`. These fail now — everything exits 1.
+
+```rust
+/// Threshold failures are data, not errors, and get their own exit code.
+#[test]
+fn lint_findings_exit_with_issues_code() {
+    let dir = tempfile::tempdir().unwrap();
+    // ... write a config and a document that fails a rule ...
+    cmd()
+        .current_dir(dir.path())
+        .args(["lint", "doc.md"])
+        .assert()
+        .code(2);
+}
+
+/// A malformed config is a real error and keeps exit 1.
+#[test]
+fn config_error_exits_one() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("bito.toml"), "not toml at all {{{").unwrap();
+    cmd()
+        .current_dir(dir.path())
+        .args(["lint", "doc.md"])
+        .assert()
+        .code(1);
+}
+
+/// The declared schema must not let the two codes collide.
+#[test]
+fn schema_declares_disjoint_exit_codes() {
+    cmd().arg("schema").assert().success();
+}
+```
+
+The third test is the cheap one that earns its keep: `validate_metadata` runs
+inside `schema_for`, so a schema whose outcome and error codes overlap fails
+there. `parse_with` surfaces it as a clap error at runtime, not at compile
+time, so a test that actually invokes `bito schema` is what catches it.
+
+- [ ] **Step 2: Add the outcome type**
+
+In `crates/bito/src/lib.rs`:
+
+```rust
+/// Exit code for a completed run that found issues in the input.
+///
+/// Distinct from `1`, which means bito could not do its job. Agents and CI
+/// scripts branch on this to tell "the prose needs work" from "the tool is
+/// misconfigured."
+pub const EXIT_ISSUES_FOUND: u8 = 2;
+
+/// A check ran to completion and the input did not meet a threshold.
+///
+/// This travels the `anyhow` error channel for control flow, but it is a
+/// result, not a failure. `main` recognizes it and exits
+/// [`EXIT_ISSUES_FOUND`] without the `Error:` prefix.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct IssuesFound(pub String);
+```
+
+Add `thiserror = "2.0"` to `crates/bito/Cargo.toml` if not already present.
+
+- [ ] **Step 3: Convert the six outcome sites**
+
+Each of the six rows marked *outcome* changes from `bail!` to a typed return.
+`readability.rs:46` becomes:
+
+```rust
+        return Err(IssuesFound(format!(
+            "{} scores {:.1} (max: {:.0}). Simplify sentences or reduce jargon.",
+            args.file, report.grade, max,
+        ))
+        .into());
+```
+
+Leave `analyze.rs:250` and `mod.rs` on `bail!`. Those are invocation errors —
+an unknown check name and an oversized input mean bito cannot proceed, which
+is what exit 1 means.
+
+- [ ] **Step 4: Teach `main` the difference**
+
+`main() -> anyhow::Result<()>` cannot express two failure codes; Rust's
+`Termination` impl maps every `Err` to 1. Split the body into `run()` and let
+`main` choose:
+
+```rust
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            tracing::error!(error = %error, "fatal error");
+            if let Some(issues) = error.downcast_ref::<bito::IssuesFound>() {
+                // A result, not a failure — no "Error:" prefix.
+                eprintln!("{issues}");
+                std::process::ExitCode::from(bito::EXIT_ISSUES_FOUND)
+            } else {
+                eprintln!("Error: {error:?}");
+                std::process::ExitCode::FAILURE
+            }
+        }
+    }
+}
+```
+
+`run()` keeps the existing signature and body, including the observability
+guard — the guard must stay alive for the whole of `run()`, so it cannot move
+into `main`.
+
+- [ ] **Step 5: Declare the contract in the schema**
+
+Task 5 wired `librebar::cli::parse`. Switch to `parse_with` and supply
+metadata. In `crates/bito/src/lib.rs`:
+
+```rust
+/// Machine-readable declaration of bito's exit contract.
+pub fn schema_metadata() -> librebar::cli::SchemaMetadata {
+    librebar::cli::SchemaMetadata::new()
+        .outcome(
+            librebar::cli::OutcomeMetadata::new(EXIT_ISSUES_FOUND, "issues_found")
+                .description("A check completed and the input did not meet a threshold"),
+        )
+        .error(
+            librebar::cli::ErrorMetadata::new("config_invalid")
+                .exit_code(1)
+                .retryable(false)
+                .description("Configuration could not be discovered, parsed, or deserialized"),
+        )
+        .error(
+            librebar::cli::ErrorMetadata::new("input_rejected")
+                .exit_code(1)
+                .retryable(false)
+                .description("Input was unreadable, oversized, or named an unknown check"),
+        )
+}
+```
+
+Identifiers must be lowercase ASCII, digits, or `_`, starting with a letter —
+`validate_identifier` enforces it.
+
+- [ ] **Step 6: Verify by hand, both paths**
+
+```bash
+cargo run -p bito -- lint README.md; echo "issues → $?"
+printf 'not toml {{{\n' > /tmp/bad.toml
+cargo run -p bito -- -c /tmp/bad.toml lint README.md; echo "config error → $?"
+cargo run -p bito -- schema | jq '.outcomes, .errors'
+```
+
+Expected: 2 for findings with a bare message, 1 for the config error with the
+`Error:` prefix, and a schema listing one outcome and two error kinds.
+
+- [ ] **Step 7: Full check**
+
+```bash
+cargo nextest run && just check
+```
+
+- [ ] **Step 8: Write commit.txt**
+
+```
+feat(cli): exit 2 when checks find issues
+
+Six commands reported threshold failures through anyhow::bail,
+which exits 1 — the same code a malformed config or an unreadable
+file produces. An agent calling bito lint could not tell "the
+prose needs work" from "bito is broken," which for an agent-facing
+tool is the difference between acting on the output and retrying
+against a tool that will never succeed.
+
+Findings now exit 2 and print without the Error: prefix, because
+they are a result rather than a failure. Exit 1 keeps its meaning:
+bito could not do its job. Unknown check names and oversized input
+stay on 1, since neither lets a check run.
+
+The contract is declared through librebar's schema as one outcome
+and two error kinds, so bito schema publishes it and librebar's
+validation rejects any future overlap between the two code sets.
+
+The existing cli suite asserted .failure(), which is true of any
+non-zero code, so it neither caught this change nor pinned the old
+behavior. It now asserts exact codes.
+
+Release-Note: Exit 2 when checks find issues, 1 for real errors
+Release-Impact: high
+```
+
+Then tell Clay to run `gtxt`.
+
+---
+
 ## Task 7: Port doctor to `DoctorRunner` and add `--bundle`
 
 **Files:**
@@ -1261,6 +1582,13 @@ Add under an `### Changed` heading in the unreleased section:
   permissions. Rotated files are renamed with a date suffix and zstd
   compressed. bito no longer falls back to writing logs into the current
   working directory when `HOME` is unset.
+- Commands that check a threshold — `analyze`, `readability`, `grammar`,
+  `tokens`, `completeness`, and `lint` — now exit **2** when the input does not
+  meet it, and print the finding without an `Error:` prefix. Exit **1** now
+  means only that bito could not run: bad configuration, unreadable input, an
+  oversized file, or an unknown check name. Scripts testing for failure at all
+  (`if ! bito lint ...`) are unaffected; scripts testing `$? -eq 1` to detect
+  findings must test for `2`. `bito schema` publishes the full contract.
 ```
 
 Do **not** add a version heading or bump any version. Release tooling owns that.
@@ -1268,6 +1596,15 @@ Do **not** add a version heading or bump any version. Release tooling owns that.
 - [ ] **Step 3: Update README.md**
 
 Update the environment-variable table to include `BITO_NO_UPDATE_CHECK`, and document `--format` alongside the existing `--json` mention. Add `schema`, `completions`, and `doctor --bundle` to the command list.
+
+Add an exit-code table. It is the part of an agent-facing CLI's contract most
+likely to be consumed by something that cannot read prose:
+
+| Code | Meaning |
+|---|---|
+| 0 | Checks passed |
+| 2 | Checks ran; input did not meet a threshold |
+| 1 | bito could not run — config, input, or invocation error |
 
 - [ ] **Step 4: Verify docs build**
 
@@ -1336,6 +1673,31 @@ These surfaced during the bito migration and must appear in the playbook:
 - **Async update checks with a sync `main`.** `UpdateChecker::check()` is async. Build a `new_current_thread` runtime in the helper; do not re-add `#[tokio::main]`.
 - **`doctor --json` is a consumed contract.** Port the checks, keep the JSON field names.
 - **Never hand-edit versions.** Release tooling owns every `Cargo.toml` version field.
+- **Dependency removals belong to the task that deletes the last import.** The
+  original plan dropped figment and the tracing stack in the "add librebar"
+  commit, three tasks before the code using them was replaced. The build gate
+  in that same task would have failed. Add first; remove where the imports die.
+- **Don't swap one leaked error type for another.** A core crate exposing
+  `Result<_, figment::Error>` has figment's version in its public API. Changing
+  it to `Result<_, librebar::Error>` just moves the coupling. Keep the crate's
+  own error enum and store the foreign error as
+  `Box<dyn Error + Send + Sync + 'static>` — librebar's own `error.rs` does
+  exactly this and documents why: the concrete error stays reachable through
+  `source()` and `downcast_ref` without entering the enum's layout.
+- **`#[non_exhaustive]` on error enums, before the first release.** librebar
+  marks all of its own; template-derived crates usually mark none, so every
+  added variant is a breaking change. Adding it during a migration that is
+  already breaking is free.
+- **Threshold failures are not errors.** A checker that reports "input did not
+  meet the threshold" through the same exit code as "I could not run" is
+  unusable by an agent, which cannot distinguish acting on output from
+  retrying against a broken tool. librebar's `OutcomeMetadata` vs
+  `ErrorMetadata` split is the fix, and `validate_metadata` enforces that the
+  two code sets stay disjoint.
+- **`.failure()` is not an exit-code assertion.** `assert_cmd`'s `.failure()`
+  passes for any non-zero code. A suite described as the compatibility gate can
+  be full of them and still not pin the behavior it claims to protect. Use
+  `.code(n)`.
 
 - [ ] **Step 4: Write the case study**
 
