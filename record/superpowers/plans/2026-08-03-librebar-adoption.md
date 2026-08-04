@@ -952,7 +952,7 @@ gained `--format text` to keep testing the text path they were written for.
 - Modify: `xtask/src/commands/man.rs:18`
 - Modify: `xtask/src/commands/completions.rs:22`
 
-- [ ] **Step 1: Confirm xtask currently fails to build**
+- [x] **Step 1: Confirm xtask currently fails to build**
 
 ```bash
 cargo build -p xtask
@@ -960,7 +960,7 @@ cargo build -p xtask
 
 Expected: FAIL with `cannot find function 'command' in crate 'bito'`.
 
-- [ ] **Step 2: Update the manpage generator**
+- [x] **Step 2: Update the manpage generator**
 
 In `xtask/src/commands/man.rs`, replace the `let cmd = bito::command();` line and the surrounding `clap_mangen` rendering with librebar's generator:
 
@@ -970,7 +970,7 @@ In `xtask/src/commands/man.rs`, replace the `let cmd = bito::command();` line an
 
 Nested filenames include the full command path (`bito-lint.1`), so same-named leaves in different groups cannot overwrite each other. Adjust the surrounding function to report `paths` in whatever form it already reports generated files.
 
-- [ ] **Step 3: Update the completions generator**
+- [x] **Step 3: Update the completions generator**
 
 In `xtask/src/commands/completions.rs`, replace `let mut cmd = bito::command();` with:
 
@@ -980,7 +980,7 @@ In `xtask/src/commands/completions.rs`, replace `let mut cmd = bito::command();`
 
 This returns the same augmented command tree that `parse` uses, so generated completions include `schema` and `completions` themselves.
 
-- [ ] **Step 4: Add librebar to xtask**
+- [x] **Step 4: Add librebar to xtask**
 
 In `xtask/Cargo.toml` under `[dependencies]`:
 
@@ -988,7 +988,7 @@ In `xtask/Cargo.toml` under `[dependencies]`:
 librebar = { version = "0.5", default-features = false, features = ["cli"] }
 ```
 
-- [ ] **Step 5: Verify xtask builds and generates**
+- [x] **Step 5: Verify xtask builds and generates**
 
 ```bash
 cargo build -p xtask && cargo run -p xtask -- completions zsh | head -3
@@ -996,13 +996,13 @@ cargo build -p xtask && cargo run -p xtask -- completions zsh | head -3
 
 Expected: build succeeds; completions output includes `schema`.
 
-- [ ] **Step 6: Full check**
+- [x] **Step 6: Full check**
 
 ```bash
 just check
 ```
 
-- [ ] **Step 7: Write commit.txt**
+- [x] **Step 7: Write commit.txt**
 
 ```
 build(xtask): generate artifacts through librebar
@@ -1015,6 +1015,38 @@ path so same-named leaves cannot collide.
 ```
 
 Then tell Clay to run `gtxt`.
+
+### What Task 6 actually did differently
+
+**Step 1's premise was wrong.** `cargo build -p xtask` succeeded — Task 5 kept
+`bito::command()` precisely because deleting it would have failed *its own*
+build gate. Task 6 owns that deletion, along with the now-unused
+`CommandFactory` import and the module doc that linked to it.
+
+**`librebar::cli::command::<T>()` returns `Result<Command, clap::Error>.`**
+Step 3's snippet drops it. It errors when the application declares a name
+librebar reserves.
+
+**`generate_manpages` creates the output directory** and returns the paths, so
+`fs::create_dir_all` and the whole `clap_mangen` render loop came out.
+`clap_mangen` was xtask's last import of it and left `Cargo.toml` with it.
+
+**Step 5's verification command does not exist.** xtask takes `--shell`, not a
+positional, and writes files rather than printing to stdout — so it is
+`cargo run -p xtask -- completions --shell zsh`, checked by grepping the
+generated `_bito`.
+
+**The generator ships 20 junk man pages.** librebar filters only *hidden*
+subcommands, and clap's auto-generated `help` is not hidden, so it walks
+`help`, `help lint`, `help custom show`, and so on: 35 pages where 15 are real.
+`.github/workflows/cd.yml:134` copies the whole directory into the release
+archive, so they would ship. Clay chose to filter them in `xtask` rather than
+set `disable_help_subcommand`, keeping `bito help lint` working. **Delete
+`is_help_page` once librebar skips built-in help subcommands upstream.**
+
+The nesting itself is a real gain: `bito-custom-list.1` and
+`bito-custom-show.1` had no man pages before, because the old generator only
+walked one level deep.
 
 ---
 
@@ -1832,6 +1864,12 @@ These surfaced during the bito migration and must appear in the playbook:
   both compact cannot keep that through `parse`, and `disable_help_flag` plus
   `with_help_short` collide with clap's auto-help. Expect `--help` to get
   longer. *(Worth an upstream fix.)*
+- **`generate_manpages` walks clap's built-in `help` subcommand.** It filters
+  hidden subcommands, and the auto-generated `help` is not hidden, so a CLI
+  with ten subcommands gets twenty extra pages documenting how `help` explains
+  the others — `bito-help-custom-show.1` and friends. Check what your release
+  workflow copies: if it takes the whole man directory, they ship. Filter on
+  generation or set `disable_help_subcommand`. *(Worth an upstream fix.)*
 - **Making JSON the default output finds every place JSON output was wrong.**
   `--format auto` promotes JSON from an opt-in flag to the default for any
   redirected stream, so every `if !json { println!(...) }` with no `else`

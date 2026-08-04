@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::PathBuf;
 
 use clap::Args;
@@ -12,31 +11,36 @@ pub struct ManArgs {
 
 pub fn cmd_man(args: ManArgs) -> Result<(), String> {
     let out_dir = crate::workspace_root().join(args.out_dir);
-    fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
 
-    // Generate main command manpage
-    let cmd = bito::command();
-    let man = clap_mangen::Man::new(cmd.clone());
-    let mut buffer: Vec<u8> = Vec::new();
-    man.render(&mut buffer)
-        .map_err(|e| format!("render manpage: {e}"))?;
+    // Renders the same augmented tree `librebar::cli::parse` uses, so the
+    // pages cover `schema` and `completions` too. Filenames carry the full
+    // hyphenated command path, so equally named leaves in different subtrees
+    // cannot overwrite each other. Creates the output directory itself.
+    let paths = librebar::cli::generate_manpages::<bito::Cli>(&out_dir)
+        .map_err(|error| format!("generate manpages in {}: {error}", out_dir.display()))?;
 
-    let man_path = out_dir.join("bito.1");
-    fs::write(&man_path, buffer).map_err(|e| format!("{}: {e}", man_path.display()))?;
-    println!("wrote {}", man_path.display());
-
-    // Generate subcommand manpages
-    for subcommand in cmd.get_subcommands() {
-        let name = subcommand.get_name();
-        let man = clap_mangen::Man::new(subcommand.clone());
-        let mut buffer: Vec<u8> = Vec::new();
-        man.render(&mut buffer)
-            .map_err(|e| format!("render manpage for {name}: {e}"))?;
-
-        let man_path = out_dir.join(format!("bito-{name}.1"));
-        fs::write(&man_path, buffer).map_err(|e| format!("{}: {e}", man_path.display()))?;
-        println!("wrote {}", man_path.display());
+    for path in paths {
+        if is_help_page(&path) {
+            std::fs::remove_file(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            continue;
+        }
+        println!("wrote {}", path.display());
     }
 
     Ok(())
+}
+
+/// Whether this page documents clap's built-in `help` subcommand.
+///
+/// librebar's generator skips only *hidden* subcommands, and clap's
+/// auto-generated `help` is not hidden — so it walks `help`, `help lint`,
+/// `help custom show`, and so on, twenty pages of a subcommand explaining how
+/// to read other subcommands. `.github/workflows/cd.yml` copies this whole
+/// directory into the release archive, so they would ship.
+///
+/// Delete this filter once librebar skips built-in help subcommands itself.
+fn is_help_page(path: &std::path::Path) -> bool {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| stem.split('-').any(|segment| segment == "help"))
 }

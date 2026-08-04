@@ -2588,7 +2588,7 @@ dependencies = [
  "bito",
  "clap",
  "clap_complete",
- "clap_mangen",
+ "librebar",
 ]
 
 [[package]]

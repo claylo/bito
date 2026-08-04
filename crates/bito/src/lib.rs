@@ -12,14 +12,15 @@
 //!
 //! # Documentation Generation
 //!
-//! The [`command()`] function returns the clap `Command` for generating man pages
-//! and shell completions via `xtask`.
+//! `xtask` builds man pages and shell completions from [`Cli`] through
+//! librebar's generators, which render the same augmented command tree that
+//! `librebar::cli::parse` uses at runtime.
 pub mod commands;
 
 #[cfg(feature = "mcp")]
 pub mod server;
 
-use librebar::cli::clap::{CommandFactory, Parser, Subcommand};
+use librebar::cli::clap::{Parser, Subcommand};
 
 const ENV_HELP: &str = "\
 ENVIRONMENT VARIABLES:
@@ -81,14 +82,4 @@ pub enum Commands {
     /// Start MCP (Model Context Protocol) server on stdio
     #[cfg(feature = "mcp")]
     Serve(commands::serve::ServeArgs),
-}
-
-/// Returns the clap command for documentation generation.
-///
-/// Still here for `xtask`'s man page and completion generators, which Task 6
-/// repoints at librebar's own. Note that it does not carry the `schema` and
-/// `completions` subcommands — `librebar::cli::parse` adds those to the
-/// running binary, not to this tree.
-pub fn command() -> librebar::cli::clap::Command {
-    Cli::command()
 }
