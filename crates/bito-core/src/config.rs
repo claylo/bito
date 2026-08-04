@@ -214,6 +214,14 @@ pub struct Config {
     pub log_level: LogLevel,
     /// Directory for JSONL log files (falls back to platform defaults if unset).
     pub log_dir: Option<Utf8PathBuf>,
+    /// How many days to keep rotated log files. Defaults to 7 when unset.
+    ///
+    /// Set to `0` to keep rotated logs forever, which is what you want when
+    /// logrotate or a log shipper owns the directory. Omitting the field and
+    /// setting it to null both mean "use the default": an `Option<u64>` that
+    /// was never set serializes to null, so null cannot mean anything else
+    /// without the default becoming unreachable.
+    pub log_retention_days: Option<u64>,
     /// Default token budget for the `tokens` command.
     pub token_budget: Option<usize>,
     /// Default maximum Flesch-Kincaid grade level for the `readability` command.
@@ -348,13 +356,8 @@ pub fn user_data_dir() -> Option<Utf8PathBuf> {
 ///
 /// Returns `~/.local/share/bito/` on Linux, `~/Library/Application Support/bito/`
 /// on macOS, and equivalent on other platforms.
-///
-/// librebar has no equivalent, so this is the one helper still reaching for
-/// `directories` directly. Upstreaming it would let bito-core drop that
-/// dependency entirely.
 pub fn user_data_local_dir() -> Option<Utf8PathBuf> {
-    let proj_dirs = directories::ProjectDirs::from("", "", APP_NAME)?;
-    Utf8PathBuf::from_path_buf(proj_dirs.data_local_dir().to_path_buf()).ok()
+    librebar::config::user_data_local_dir(APP_NAME)
 }
 
 #[cfg(test)]
@@ -814,6 +817,33 @@ rules:
         let yaml = "log_level: info\n";
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert!(config.rules.is_none());
+    }
+
+    /// librebar reads bito's logging settings off the *serialized* config by
+    /// field name, so renaming one here compiles cleanly and silently stops
+    /// the setting from ever reaching the log writer. Nothing else pins these
+    /// three names.
+    #[test]
+    fn logging_fields_serialize_under_the_names_librebar_reads() {
+        let value = serde_json::to_value(Config::default()).expect("serialize config");
+
+        for key in ["log_level", "log_dir", "log_retention_days"] {
+            assert!(
+                value.get(key).is_some(),
+                "librebar looks up `{key}` on the serialized config; found keys: {:?}",
+                value.as_object().map(|map| map.keys().collect::<Vec<_>>())
+            );
+        }
+    }
+
+    /// Retention is unset by default so librebar's seven-day window applies.
+    /// `0` is the opt-out; null and absent both mean "use the default".
+    #[test]
+    fn log_retention_days_defaults_to_unset() {
+        assert!(Config::default().log_retention_days.is_none());
+
+        let config: Config = serde_yaml::from_str("log_retention_days: 0\n").unwrap();
+        assert_eq!(config.log_retention_days, Some(0));
     }
 
     #[test]

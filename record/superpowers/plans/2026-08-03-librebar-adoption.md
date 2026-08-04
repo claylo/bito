@@ -496,7 +496,7 @@ This is the task that fixes the log-file defects. Write the regression tests **f
 - Modify: `crates/bito/src/main.rs`
 - Test: `crates/bito/tests/logging.rs` (create)
 
-- [ ] **Step 1: Write the failing regression tests**
+- [x] **Step 1: Write the failing regression tests**
 
 Create `crates/bito/tests/logging.rs`:
 
@@ -594,7 +594,7 @@ fn log_file_is_private() {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 cargo nextest run --test logging
@@ -602,7 +602,7 @@ cargo nextest run --test logging
 
 Expected: `live_log_file_has_stable_name` FAILS (finds `bito.jsonl.2026-08-03`, not `bito.jsonl`), and `log_file_is_private` FAILS (mode `644`). `no_log_files_written_to_cwd_when_home_unset` may pass or fail depending on whether `/var/log` is writable in your environment — it is the CI-visible one.
 
-- [ ] **Step 3: Delete the observability module**
+- [x] **Step 3: Delete the observability module**
 
 ```bash
 git rm crates/bito-core/src/observability.rs
@@ -610,7 +610,7 @@ git rm crates/bito-core/src/observability.rs
 
 In `crates/bito-core/src/lib.rs`, remove the `pub mod observability;` declaration and its doc comment.
 
-- [ ] **Step 4: Wire librebar's builder in `main.rs`**
+- [x] **Step 4: Wire librebar's builder in `main.rs`**
 
 In `crates/bito/src/main.rs`, remove `use bito_core::observability;` and replace the observability block (currently lines 53-62) with:
 
@@ -632,7 +632,7 @@ In `crates/bito/src/main.rs`, remove `use bito_core::observability;` and replace
 
 Bind the returned `App` to `app` and hold it for the whole of `main`. Dropping it flushes and closes the log writer.
 
-- [ ] **Step 5: Run the regression tests**
+- [x] **Step 5: Run the regression tests**
 
 ```bash
 cargo nextest run --test logging
@@ -640,7 +640,7 @@ cargo nextest run --test logging
 
 Expected: all three PASS.
 
-- [ ] **Step 6: Confirm rotation renames rather than re-naming the live file**
+- [x] **Step 6: Confirm rotation renames rather than re-naming the live file**
 
 ```bash
 BITO_LOG_DIR=/tmp/bito-logtest cargo run -p bito -- info > /dev/null
@@ -649,7 +649,7 @@ ls -la /tmp/bito-logtest/
 
 Expected: exactly `bito.jsonl`, mode `-rw-------`. Rotation to `bito.jsonl.<date>.zst` only happens on a day boundary, so a same-day run shows one file. Clean up with `rm -rf /tmp/bito-logtest`.
 
-- [ ] **Step 7: Drop the tracing subscriber stack and `directories`** *(moved here from Task 2)*
+- [x] **Step 7: Drop the tracing subscriber stack and `directories`** *(moved here from Task 2)*
 
 With `observability.rs` deleted, `crates/bito-core/Cargo.toml` loses:
 
@@ -666,13 +666,13 @@ subscriber wiring moves to librebar. Verify:
 grep -rn "tracing_subscriber\|tracing_appender\|directories::" crates/ && echo "STILL REFERENCED" || echo clean
 ```
 
-- [ ] **Step 8: Full test run and check**
+- [x] **Step 8: Full test run and check**
 
 ```bash
 cargo nextest run && just check
 ```
 
-- [ ] **Step 9: Write commit.txt**
+- [x] **Step 9: Write commit.txt**
 
 ```
 fix(logging): hand log file handling to librebar
@@ -702,9 +702,54 @@ Release-Impact: high
 
 Then tell Clay to run `gtxt`.
 
+### What Task 4 actually did differently
+
+**Step 4's snippet had a hole: it never wired `quiet`/`verbose`.** librebar's
+builder has no log-level setter. The filter default comes from the config's
+`log_level` field or from a `CommonArgs` handed in via `with_cli()`, and
+nothing else (`lib.rs:337-341`). Since `CommonArgs` does not land until Task 5,
+following the snippet as written would have made `-q`/`-v` stop affecting log
+output for one commit. `CommonArgs` also cannot be constructed by hand —
+`legacy_json` is `pub(crate)` — so `main.rs` gained a `verbosity()` helper that
+round-trips the two flags through clap. **Task 5 deletes it.**
+
+**`app.config()` returns `&Config`, and `cmd_serve` wants it owned.** Step 4
+says `let config = app.config();`, which does not compile against the existing
+call sites. `.clone()` keeps the diff inside the logging block instead of
+touching ten dispatch arms.
+
+**Retention: Clay chose the config field over the bare default.** `Config`
+gained `log_retention_days: Option<u64>`, documented in `README.md` and
+`docs/README.md`.
+
+**Two of the plan's own tests were too weak to fail.**
+`live_log_file_has_stable_name` as written *passed against the broken
+implementation*: the old `ensure_writable()` probed a directory by opening
+`bito.jsonl` for append, leaving an empty stub at the stable name while
+`tracing_appender::rolling::daily` wrote everything to `bito.jsonl.<date>`
+beside it. A bare `.exists()` found the stub. It now asserts the stable name is
+non-empty and is the only file in the directory. Separately, the plan describes
+rotated files as `bito.jsonl.<date>` — librebar actually writes
+`bito.<date>.jsonl`, then `.zst`.
+
+**Step 2's prediction was conservative.** All three tests failed on macOS, not
+two: `/var/log` is not writable there, so the cwd fallback fired on a normal
+developer box, not just in CI.
+
+**Two tests were added beyond the plan.** Nothing connected
+`log_retention_days` to any behavior — librebar reads it off the serialized
+config by string name, so a rename would compile and silently stop pruning.
+`stale_rotated_logs_are_pruned_by_default` and
+`log_retention_days_zero_keeps_rotated_logs` pin both directions, and a
+`bito-core` unit test pins the three field names librebar looks up.
+
 ---
 
 ## Task 5: Adopt `CommonArgs` for the CLI
+
+> **From Task 4:** delete the `verbosity()` helper and its call in `main.rs`
+> when `CommonArgs` is flattened into `Cli`; `.with_cli(cli.common)` replaces
+> it. Deleting the helper without adding `.with_cli()` silently drops `-q`/`-v`.
 
 **Files:**
 - Modify: `crates/bito/src/lib.rs`
@@ -1572,10 +1617,14 @@ Add under the existing `# Logs` section in `.gitignore`:
 
 ```gitignore
 *.jsonl
-*.jsonl.*.zst
+*.jsonl.zst
 ```
 
 The cwd fallback that caused stray log files is gone, but this costs nothing and covers `BITO_LOG_DIR` being pointed at the repo during debugging.
+
+*(Corrected in Task 4: rotated logs are `bito.<date>.jsonl`, compressed to
+`bito.<date>.jsonl.zst`. The date goes before the extension, not after it, so
+the originally planned `*.jsonl.*.zst` would never have matched.)*
 
 - [ ] **Step 2: Document the `--format` change in CHANGELOG.md**
 
@@ -1587,9 +1636,12 @@ Add under an `### Changed` heading in the unreleased section:
   produces JSON. Pass `--format text` to force the old behavior. The `--json`
   flag still works as an alias for `--format json`.
 - Log files are now written as `bito.jsonl` with a stable name and 0600
-  permissions. Rotated files are renamed with a date suffix and zstd
+  permissions. Rotated files are renamed to `bito.<date>.jsonl` and zstd
   compressed. bito no longer falls back to writing logs into the current
   working directory when `HOME` is unset.
+- Rotated log files are deleted after seven days. The new `log_retention_days`
+  config field changes that window; `0` keeps them forever. Nobody is affected
+  yet — bito has not shipped with librebar — but the default is new behavior.
 - A config file named with `-c` now takes precedence over `BITO_*` environment
   variables. The previous loader merged the environment last, so an exported
   variable silently overrode an explicitly requested file. Discovery is
@@ -1711,6 +1763,24 @@ These surfaced during the bito migration and must appear in the playbook:
   passes for any non-zero code. A suite described as the compatibility gate can
   be full of them and still not pin the behavior it claims to protect. Use
   `.code(n)`.
+- **A regression test that passes before the fix is not a test.** Run every new
+  test against the *old* implementation and read the failure message. bito's
+  "the live log has a stable name" test asserted `bito.jsonl.exists()` and
+  passed against the broken code, because the old writability probe opened that
+  exact path and left an empty stub while the real log went to
+  `bito.jsonl.<date>` beside it. Assert the property, not a filename:
+  non-empty, and the only file present.
+- **Config-to-librebar wiring is stringly typed.** The builder reads `log_dir`,
+  `log_level`, and `log_retention_days` off the consumer's config via
+  `serde_json::to_value` and a string key lookup. Renaming one of those fields
+  compiles cleanly and silently stops the setting from doing anything. Pin the
+  names in a test that serializes `Config::default()`.
+- **The builder has no log-level setter.** Verbosity reaches the filter only
+  through config `log_level` or a `CommonArgs` passed to `with_cli()`. If
+  logging is adopted before the CLI, `-q`/`-v` go dead in between, and
+  `CommonArgs` cannot be built by hand because one field is `pub(crate)` —
+  it has to be parsed. Adopt CLI and logging in the same commit, or budget for
+  the bridge. *(Worth an upstream fix: `Builder::with_log_level`.)*
 
 - [ ] **Step 4: Write the case study**
 

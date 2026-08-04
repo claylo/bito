@@ -191,10 +191,16 @@ Closer files win. All formats (TOML, YAML, JSON) work interchangeably.
 
 Environment variables override config files:
 
-- `BITO_LOG_PATH` — log file path (daily rotation appends `.YYYY-MM-DD`)
+- `BITO_LOG_PATH` — log file path
 - `BITO_LOG_DIR` — directory (file name defaults to `bito.jsonl`)
 - `BITO_ENV` — environment tag (default: `dev`)
-- Config file key: `log_dir`
+- Config file keys: `log_dir`, `log_retention_days`
+
+The live log keeps a stable name, so `tail -f bito.jsonl` follows it across
+days. On the first write of a new day the previous day's log is renamed to
+`bito.YYYY-MM-DD.jsonl` and compressed to `.zst`. Rotated logs are deleted
+after seven days; set `log_retention_days` to change that window, or to `0`
+to keep them forever.
 
 ```toml
 # .bito.toml

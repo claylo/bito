@@ -256,6 +256,7 @@ BITO_TOKENIZER=openai
 |-------|------|---------|-------------|
 | `log_level` | string | `info` | `debug`, `info`, `warn`, or `error` |
 | `log_dir` | path | platform default | Directory for JSONL log files |
+| `log_retention_days` | integer | `7` | Days to keep rotated logs; `0` keeps them forever |
 | `token_budget` | integer | none | Default token budget for `tokens` command |
 | `max_grade` | float | none | Default max Flesch-Kincaid grade level |
 | `passive_max_percent` | float | none | Default max passive voice percentage |

@@ -6,7 +6,31 @@ use bito::{Cli, Commands, commands};
 use clap::FromArgMatches;
 use tracing::debug;
 
-use bito_core::observability;
+/// Carry `-q`/`-v` into librebar's log filter.
+///
+/// The filter default comes from either the config's `log_level` or the
+/// `quiet`/`verbose` fields of a `CommonArgs`; librebar's builder exposes no
+/// direct log-level setter. `CommonArgs` also cannot be constructed by hand —
+/// one field is crate-private — so the flags are round-tripped through clap.
+///
+/// Task 5 flattens `CommonArgs` into `Cli` and deletes this.
+fn verbosity(quiet: bool, verbose: u8) -> librebar::cli::CommonArgs {
+    use librebar::cli::clap::Parser as _;
+
+    #[derive(librebar::cli::clap::Parser)]
+    struct Verbosity {
+        #[command(flatten)]
+        common: librebar::cli::CommonArgs,
+    }
+
+    let mut argv = vec!["bito"];
+    if quiet {
+        argv.push("--quiet");
+    }
+    argv.extend(std::iter::repeat_n("--verbose", verbose as usize));
+
+    Verbosity::parse_from(argv).common
+}
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::from_arg_matches(&bito::command().get_matches())
@@ -52,16 +76,20 @@ fn main() -> anyhow::Result<()> {
     let (config, config_sources) = bito_core::config::load(&cwd, config_path.as_deref())
         .context("failed to load configuration")?;
 
-    let obs_config = observability::ObservabilityConfig::from_env_with_overrides(
-        env!("CARGO_PKG_NAME"),
-        config
-            .log_dir
-            .as_ref()
-            .map(|dir| dir.as_std_path().to_path_buf()),
-    );
-    let env_filter = observability::env_filter(cli.quiet, cli.verbose, config.log_level.as_str());
-    let _guard = observability::init_observability(&obs_config, env_filter)
-        .context("failed to initialize logging/tracing")?;
+    // Hold `app` for the rest of main: dropping it flushes and closes the log
+    // writer. librebar reads log_dir, log_level, and log_retention_days off
+    // the config we hand it, so bito-core stays authoritative over config
+    // semantics.
+    let app = librebar::init(env!("CARGO_PKG_NAME"))
+        .with_version(env!("CARGO_PKG_VERSION"))
+        .with_cli(verbosity(cli.quiet, cli.verbose))
+        .with_config(config)
+        .logging()
+        .crash_handler()
+        .start()
+        .context("failed to initialize logging and crash handling")?;
+
+    let config = app.config().clone();
 
     debug!(
         verbose = cli.verbose,

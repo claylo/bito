@@ -233,7 +233,6 @@ dependencies = [
  "anyhow",
  "camino",
  "clap",
- "directories",
  "globset",
  "librebar",
  "pulldown-cmark",
@@ -245,8 +244,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
