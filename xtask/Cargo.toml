@@ -11,4 +11,4 @@ homepage.workspace = true
 clap = { version = "4.6", features = ["derive"] }
 clap_complete = "4.6"
 bito = { path = "../crates/bito", features = ["mcp"] }
-librebar = { version = "0.5", default-features = false, features = ["cli"] }
+librebar = { version = "0.6", default-features = false, features = ["cli"] }

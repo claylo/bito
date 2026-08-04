@@ -79,7 +79,9 @@ littered CI and container filesystems.
 
 ### Smaller changes
 
-- `--help` prints clap's long help. `-h` still prints the compact form.
+- `-h` and `--help` both print the compact help, as they did before the
+  migration. clap splits the two by default and expands every doc comment into
+  `--help`; bito does not.
 - `bito lint` on a file with no matching rules emits
   `{"file", "pass": true, "skipped": <reason>}` in JSON mode. It previously
   printed nothing, which only surfaced once redirected output started
