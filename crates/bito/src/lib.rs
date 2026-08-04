@@ -86,6 +86,7 @@ ENVIRONMENT VARIABLES:
     BITO_LOG_PATH         Log file path
     BITO_LOG_DIR          Log directory
     BITO_TOKENIZER        Tokenizer backend (claude, openai)
+    BITO_NO_UPDATE_CHECK  Set to 1 to disable update checks
 ";
 
 /// Command-line interface definition for bito.

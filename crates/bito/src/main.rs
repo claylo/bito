@@ -123,10 +123,24 @@ fn run() -> anyhow::Result<()> {
         Commands::Custom(args) => {
             commands::custom::cmd_custom(args, json, &config, &config_sources)
         }
-        Commands::Doctor(args) => {
-            commands::doctor::cmd_doctor(args, json, &config, &config_sources, &cwd)
-        }
-        Commands::Info(args) => commands::info::cmd_info(args, json, &config, &config_sources),
+        // `info` and `doctor` are the only commands that touch the network.
+        // Keeping the call here rather than inside them makes that set
+        // reviewable in one place, and keeps their unit tests offline.
+        Commands::Doctor(args) => commands::doctor::cmd_doctor(
+            args,
+            json,
+            &config,
+            &config_sources,
+            &cwd,
+            commands::update_check::check(),
+        ),
+        Commands::Info(args) => commands::info::cmd_info(
+            args,
+            json,
+            &config,
+            &config_sources,
+            commands::update_check::check(),
+        ),
         #[cfg(feature = "mcp")]
         Commands::Serve(args) => {
             let config_dir = config_sources

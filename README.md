@@ -208,6 +208,7 @@ Environment variables override config files:
 - `BITO_LOG_PATH` — log file path
 - `BITO_LOG_DIR` — directory (file name defaults to `bito.jsonl`)
 - `BITO_ENV` — environment tag (default: `dev`)
+- `BITO_NO_UPDATE_CHECK` — set to `1` to disable release update checks
 - Config file keys: `log_dir`, `log_retention_days`
 
 The live log keeps a stable name, so `tail -f bito.jsonl` follows it across

@@ -1624,7 +1624,7 @@ the `docs/README.md` doctor section.
 - Modify: `crates/bito/src/commands/mod.rs`
 - Modify: `crates/bito/src/commands/info.rs`, `crates/bito/src/commands/doctor.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `crates/bito/src/commands/update_check.rs` with its test first:
 
@@ -1679,7 +1679,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Register the module**
+- [x] **Step 2: Register the module**
 
 In `crates/bito/src/commands/mod.rs`, add:
 
@@ -1687,7 +1687,7 @@ In `crates/bito/src/commands/mod.rs`, add:
 pub mod update_check;
 ```
 
-- [ ] **Step 3: Run the test**
+- [x] **Step 3: Run the test**
 
 ```bash
 cargo nextest run -p bito update_check
@@ -1695,7 +1695,7 @@ cargo nextest run -p bito update_check
 
 Expected: PASS. This test makes no network call — suppression short-circuits before the runtime is built.
 
-- [ ] **Step 4: Call it from `info` and `doctor` only**
+- [x] **Step 4: Call it from `info` and `doctor` only**
 
 In `cmd_info`, after the existing output, in the non-JSON branch only:
 
@@ -1717,7 +1717,7 @@ In `cmd_doctor`, add it as a check result rather than a bare print, so it appear
 
 Do **not** add this to `serve`, `analyze`, `lint`, `tokens`, `readability`, `completeness`, `grammar`, or `custom`.
 
-- [ ] **Step 5: Verify suppression and that hot paths stay offline**
+- [x] **Step 5: Verify suppression and that hot paths stay offline**
 
 ```bash
 BITO_NO_UPDATE_CHECK=1 cargo run -p bito -- info
@@ -1726,13 +1726,13 @@ cargo run -p bito -- analyze README.md 2>&1 | grep -i update && echo "LEAK" || e
 
 Expected: `info` prints no update line; `analyze` prints nothing about updates (`clean`).
 
-- [ ] **Step 6: Full check**
+- [x] **Step 6: Full check**
 
 ```bash
 cargo nextest run && just check
 ```
 
-- [ ] **Step 7: Write commit.txt**
+- [x] **Step 7: Write commit.txt**
 
 ```
 feat(update): notify about new releases on info and doctor
@@ -1752,6 +1752,46 @@ Release-Impact: medium
 ```
 
 Then tell Clay to run `gtxt`.
+
+### What Task 8 actually did differently
+
+**Step 1's test cannot compile**, for the same reason Task 7's could not: it
+mutates the environment through `unsafe { std::env::set_var }` and this
+workspace denies `unsafe_code`. Suppression is now tested from
+`tests/cli.rs`, where `assert_cmd` sets the variable on a subprocess and no
+`unsafe` is involved — and which tests the real binary rather than a helper.
+
+**The update check is resolved in `main`, not inside the commands.** The plan
+calls it from `cmd_info` and `cmd_doctor`, which would put every one of their
+unit tests on the network. `main` resolves it once and passes
+`Option<String>` in. Two benefits beyond the tests: the complete set of
+commands that touch the network is one `match` arm each, reviewable in place,
+and `UpdateCheck` becomes a pure `DoctorCheck`.
+
+**Step 4's doctor snippet contradicts its own instruction.** The prose says to
+add it "as a check result rather than a bare print"; the code is
+`println!("  update  {notice}")`. After Task 7 that would print *after*
+`format_report`'s summary line, outside the report it claims to join. It is a
+real check now, in the `runtime` category, and it reports "up to date" rather
+than vanishing when current — so the report shape does not depend on network
+state.
+
+**Binary cost, the open item from the first handoff.** Measured on
+`aarch64-apple-darwin`, stripped:
+
+| build | size | delta |
+|---|---|---|
+| without `update` | 44,254,272 (42.2 MiB) | — |
+| with `update` | 48,286,272 (46.1 MiB) | **+3.85 MiB, +9.1%** |
+
+Clay chose to keep it. Note the trap in measuring this: taking the number
+*before* wiring the caller gives 73 KB, because nothing reaches
+`UpdateChecker` and the linker dead-strips hyper and rustls entirely. A
+feature's cost is only visible once something calls it.
+
+**`info` writes the notice to stderr and only outside JSON.** Both matter more
+after Task 5: `--format auto` means redirected output is JSON, so a notice on
+stdout would corrupt the common case rather than a rare one.
 
 ---
 
@@ -1967,6 +2007,16 @@ These surfaced during the bito migration and must appear in the playbook:
   saying the input failed and exited 0. Nobody noticed while JSON was opt-in.
   Flipping the default silently disabled every CI gate that redirects output.
   The threshold belongs *after* the format branch, not inside it.
+- **Measure a feature's binary cost only after something calls it.** Enabling
+  librebar's `update` feature but not wiring `UpdateChecker` made the stripped
+  binary grow 73 KB, because the linker dead-strips hyper and rustls when
+  nothing reaches them. Wired, the same feature costs 3.85 MiB — 53× the
+  number you would have written down. Build the caller first, then measure.
+- **A network call inside a `DoctorCheck` puts your test suite online.**
+  `run()` is synchronous and update checks are not, so the notice has to be
+  resolved elsewhere anyway. Resolve it in `main` and pass it in: unit tests
+  stay offline, and the full set of commands that touch the network becomes
+  one reviewable list instead of a property you have to grep for.
 - **A side-effect notice printed after a JSON document breaks it.** `doctor
   --bundle` announced `wrote <path>` on stdout, which is fine in text mode and
   makes the JSON unparseable. Anything a command reports about its own actions

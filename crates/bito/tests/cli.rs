@@ -687,3 +687,81 @@ fn schema_declares_disjoint_exit_codes() {
         );
     }
 }
+
+// =============================================================================
+// Update Checks
+// =============================================================================
+//
+// Only `info` and `doctor` check for updates. Every test here suppresses the
+// check so the suite never depends on GitHub being reachable.
+
+/// `BITO_NO_UPDATE_CHECK=1` short-circuits before any network work.
+#[test]
+fn update_check_is_suppressible() {
+    cmd()
+        .env("BITO_NO_UPDATE_CHECK", "1")
+        .args(["--format", "text", "info"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("update").not());
+}
+
+/// Hot paths never check for updates, whatever the environment says.
+///
+/// `analyze`, `lint`, and friends run in editors and pre-commit hooks. A
+/// network round trip there is a latency bug, and `serve` is worse: stdio is
+/// the MCP channel, so any stray byte corrupts the protocol.
+#[test]
+fn hot_paths_do_not_check_for_updates() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), "The cat sat on the mat.").unwrap();
+    let path = tmp.path().to_str().unwrap();
+
+    for args in [
+        vec!["analyze", path],
+        vec!["readability", path],
+        vec!["tokens", path],
+        vec!["grammar", path],
+    ] {
+        let output = cmd()
+            .args(["--format", "json"])
+            .args(&args)
+            .output()
+            .expect("run command");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !stderr.to_lowercase().contains("update"),
+            "{} mentioned updates on stderr: {stderr}",
+            args[0]
+        );
+    }
+}
+
+/// A suppressed check leaves `doctor` reporting "up to date" rather than
+/// omitting the row, so the report shape does not depend on network state.
+#[test]
+fn doctor_reports_update_status() {
+    cmd()
+        .env("BITO_NO_UPDATE_CHECK", "1")
+        .args(["--format", "text", "doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("update: up to date"));
+}
+
+/// A suppressed check adds nothing to the JSON document.
+#[test]
+fn doctor_json_omits_update_when_current() {
+    let output = cmd()
+        .env("BITO_NO_UPDATE_CHECK", "1")
+        .args(["--format", "json", "doctor"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("doctor JSON");
+
+    assert!(
+        json.get("update").is_none(),
+        "no update means no `update` key: {json}"
+    );
+}

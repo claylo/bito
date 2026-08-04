@@ -74,6 +74,11 @@ bito doctor --bundle # writes a redacted bito-debug-<ts>.tar.zst for bug reports
 bito info            # shows version, features, config file paths
 ```
 
+`info` and `doctor` are the only commands that check for a newer release, so
+`analyze`, `lint`, and the rest stay offline and `serve` never risks writing to
+the MCP stdio channel. The result is cached for 24 hours; set
+`BITO_NO_UPDATE_CHECK=1` to disable it. A failed check never fails the command.
+
 `doctor` reports the resolved log file alongside the config, cache, and data
 directories, so it answers "where are my logs?" directly. `--bundle` writes the
 report to a compressed archive with secrets redacted; the archive path appears

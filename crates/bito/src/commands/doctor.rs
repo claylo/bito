@@ -30,6 +30,12 @@ struct DoctorReport {
     /// existing consumer.
     #[serde(skip_serializing_if = "Option::is_none")]
     bundle: Option<String>,
+    /// Update notice, present only when a newer release exists.
+    ///
+    /// Additive, like `bundle`: absent for every consumer that was reading
+    /// this document before update checks existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    update: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -94,6 +100,7 @@ impl DoctorReport {
 
         Self {
             bundle: None,
+            update: None,
             directories: DirectoryPaths {
                 config: config::user_config_dir().map(|p| p.to_string()),
                 cache: config::user_cache_dir().map(|p| p.to_string()),
@@ -351,6 +358,32 @@ impl DoctorCheck for DirectoryCheck {
     }
 }
 
+/// Reports whether a newer release is available.
+///
+/// The notice is passed in already resolved rather than fetched here: `run`
+/// is synchronous, the check is not, and a `DoctorCheck` that reaches the
+/// network would put every `cmd_doctor` unit test online.
+struct UpdateCheck {
+    notice: Option<String>,
+}
+
+impl DoctorCheck for UpdateCheck {
+    fn name(&self) -> &str {
+        "update"
+    }
+
+    fn category(&self) -> &str {
+        "runtime"
+    }
+
+    fn run(&self) -> CheckResult {
+        self.notice.as_ref().map_or_else(
+            || CheckResult::new(CheckStatus::Ok, "up to date"),
+            |notice| CheckResult::new(CheckStatus::Warn, notice.clone()),
+        )
+    }
+}
+
 /// Reports which XDG and bito environment overrides are set.
 struct EnvironmentCheck {
     set: Vec<String>,
@@ -382,7 +415,11 @@ impl DoctorCheck for EnvironmentCheck {
 ///
 /// Order matters: `format_report` emits a category heading whenever the
 /// category changes, so checks sharing one must be adjacent.
-fn build_runner(report: &DoctorReport, cwd: &camino::Utf8Path) -> DoctorRunner {
+fn build_runner(
+    report: &DoctorReport,
+    cwd: &camino::Utf8Path,
+    update_notice: Option<String>,
+) -> DoctorRunner {
     let mut runner = DoctorRunner::new();
 
     runner.add(ConfigCheck {
@@ -423,6 +460,9 @@ fn build_runner(report: &DoctorReport, cwd: &camino::Utf8Path) -> DoctorRunner {
 
     runner.add(TokenizerCheck);
     runner.add(LogDirCheck);
+    runner.add(UpdateCheck {
+        notice: update_notice,
+    });
     runner.add(DictionaryCheck);
     runner.add(WordListCheck);
 
@@ -464,6 +504,7 @@ pub fn cmd_doctor(
     config: &Config,
     sources: &ConfigSources,
     cwd: &camino::Utf8Path,
+    update_notice: Option<String>,
 ) -> anyhow::Result<()> {
     debug!(json_output = global_json, "executing doctor command");
 
@@ -480,7 +521,8 @@ pub fn cmd_doctor(
     });
 
     let mut report = DoctorReport::gather(config, sources, cwd);
-    let results = build_runner(&report, cwd).run_all();
+    report.update = update_notice.clone();
+    let results = build_runner(&report, cwd, update_notice).run_all();
     if let Some(spinner) = spinner {
         spinner.finish_and_clear();
     }
@@ -528,7 +570,8 @@ mod tests {
                 false,
                 &config,
                 &test_sources(),
-                &test_cwd()
+                &test_cwd(),
+                None
             )
             .is_ok()
         );
@@ -543,7 +586,8 @@ mod tests {
                 true,
                 &config,
                 &test_sources(),
-                &test_cwd()
+                &test_cwd(),
+                None
             )
             .is_ok()
         );
@@ -644,7 +688,7 @@ mod tests {
     #[test]
     fn runner_covers_every_category() {
         let report = DoctorReport::gather(&Config::default(), &test_sources(), &test_cwd());
-        let results = build_runner(&report, &test_cwd()).run_all();
+        let results = build_runner(&report, &test_cwd(), None).run_all();
 
         let categories: Vec<&str> = results.iter().map(|r| r.category.as_str()).collect();
         for expected in [
