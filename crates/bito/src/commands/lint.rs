@@ -4,7 +4,7 @@
 //! resolves which checks apply, and runs them all. This is the
 //! CLI counterpart of the `lint_file` MCP tool.
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use camino::Utf8PathBuf;
 use clap::Args;
 use owo_colors::OwoColorize;
@@ -15,6 +15,7 @@ use bito_core::lint;
 use bito_core::rules::RuleSet;
 
 use super::read_input_file;
+use crate::IssuesFound;
 
 /// Arguments for the `lint` subcommand.
 #[derive(Args, Debug)]
@@ -82,7 +83,7 @@ pub fn cmd_lint(
 
     if global_json {
         println!("{}", serde_json::to_string_pretty(&report)?);
-        return Ok(());
+        return lint_gate(&args.file, &report);
     }
 
     // Text output
@@ -154,9 +155,17 @@ pub fn cmd_lint(
         }
     }
 
-    if !report.pass {
-        bail!("{} failed lint checks", args.file);
-    }
+    lint_gate(&args.file, &report)
+}
 
-    Ok(())
+/// Apply the overall lint verdict.
+///
+/// Both output paths call this. The JSON branch used to return early and skip
+/// it entirely, so `--json` reported `"pass": false` and still exited 0.
+fn lint_gate(file: &Utf8PathBuf, report: &lint::LintReport) -> anyhow::Result<()> {
+    if report.pass {
+        Ok(())
+    } else {
+        Err(IssuesFound(format!("{file} failed lint checks")).into())
+    }
 }

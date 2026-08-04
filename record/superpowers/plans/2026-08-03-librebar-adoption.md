@@ -1091,7 +1091,7 @@ weaker than it reads — it constrains success/failure, not exit codes.
 - Modify: `crates/bito/src/commands/{analyze,readability,grammar,tokens,completeness,lint}.rs`
 - Test: `crates/bito/tests/cli.rs` (extended, not rewritten)
 
-- [ ] **Step 1: Write the failing tests first**
+- [x] **Step 1: Write the failing tests first**
 
 Add to `crates/bito/tests/cli.rs`. These fail now — everything exits 1.
 
@@ -1132,7 +1132,7 @@ inside `schema_for`, so a schema whose outcome and error codes overlap fails
 there. `parse_with` surfaces it as a clap error at runtime, not at compile
 time, so a test that actually invokes `bito schema` is what catches it.
 
-- [ ] **Step 2: Add the outcome type**
+- [x] **Step 2: Add the outcome type**
 
 In `crates/bito/src/lib.rs`:
 
@@ -1156,7 +1156,7 @@ pub struct IssuesFound(pub String);
 
 Add `thiserror = "2.0"` to `crates/bito/Cargo.toml` if not already present.
 
-- [ ] **Step 3: Convert the six outcome sites**
+- [x] **Step 3: Convert the six outcome sites**
 
 Each of the six rows marked *outcome* changes from `bail!` to a typed return.
 `readability.rs:46` becomes:
@@ -1173,7 +1173,7 @@ Leave `analyze.rs:250` and `mod.rs` on `bail!`. Those are invocation errors —
 an unknown check name and an oversized input mean bito cannot proceed, which
 is what exit 1 means.
 
-- [ ] **Step 4: Teach `main` the difference**
+- [x] **Step 4: Teach `main` the difference**
 
 `main() -> anyhow::Result<()>` cannot express two failure codes; Rust's
 `Termination` impl maps every `Err` to 1. Split the body into `run()` and let
@@ -1202,7 +1202,7 @@ fn main() -> std::process::ExitCode {
 guard — the guard must stay alive for the whole of `run()`, so it cannot move
 into `main`.
 
-- [ ] **Step 5: Declare the contract in the schema**
+- [x] **Step 5: Declare the contract in the schema**
 
 Task 5 wired `librebar::cli::parse`. Switch to `parse_with` and supply
 metadata. In `crates/bito/src/lib.rs`:
@@ -1233,7 +1233,7 @@ pub fn schema_metadata() -> librebar::cli::SchemaMetadata {
 Identifiers must be lowercase ASCII, digits, or `_`, starting with a letter —
 `validate_identifier` enforces it.
 
-- [ ] **Step 6: Verify by hand, both paths**
+- [x] **Step 6: Verify by hand, both paths**
 
 ```bash
 cargo run -p bito -- lint README.md; echo "issues → $?"
@@ -1245,13 +1245,13 @@ cargo run -p bito -- schema | jq '.outcomes, .errors'
 Expected: 2 for findings with a bare message, 1 for the config error with the
 `Error:` prefix, and a schema listing one outcome and two error kinds.
 
-- [ ] **Step 7: Full check**
+- [x] **Step 7: Full check**
 
 ```bash
 cargo nextest run && just check
 ```
 
-- [ ] **Step 8: Write commit.txt**
+- [x] **Step 8: Write commit.txt**
 
 ```
 feat(cli): exit 2 when checks find issues
@@ -1281,6 +1281,47 @@ Release-Impact: high
 ```
 
 Then tell Clay to run `gtxt`.
+
+### What Task 6a actually did differently
+
+**The exit codes are inverted from the plan: `1` is issues, `2` is tool error.**
+The plan's `EXIT_ISSUES_FOUND = 2` collides with clap, which exits `2` for
+every usage error — unknown flag, bad subcommand, conflicting args, missing
+subcommand — and does not let you configure that. `validate_metadata` cannot
+catch it, because clap's code is never declared metadata. Rather than fight it,
+bito adopts it: a malformed command line *is* a run that could not complete, so
+clap's default lands in the right bucket for free. Findings take `1`, matching
+eslint, ruff, and shellcheck. Clay chose this over adding a third code.
+
+**The task's premise was only half true: JSON mode never enforced any
+threshold.** All six commands either returned early on the JSON branch
+(`grammar`, `lint`, `analyze`) or put the check in an `else if` the JSON branch
+skipped (`readability`, `tokens`, `completeness`). `--json` printed a report
+saying the input failed and exited 0.
+
+That was survivable while `--json` was opt-in. **Task 5 made JSON the default
+for redirected output**, so `bito readability doc.md --max-grade 5 > out.txt`
+went from exit 1 to exit 0 — every CI gate that redirects output silently
+stopped failing, two commits before this one. Measured before the fix:
+
+| command | `--format text` | `--format json` |
+|---|---|---|
+| `readability --max-grade 5` | 1 | **0** |
+| `grammar --passive-max 1` | 1 | **0** |
+| `tokens --budget 1` | 1 | **0** |
+
+Each threshold now lives outside the format branch — three commands grew a
+small `*_gate` function both paths call. Without this, Task 6a's exit codes
+would have been unreachable in the default mode for exactly the agents and
+pipelines the task exists to serve.
+
+**`.failure()` was replaced at all six pre-existing sites**, not just added to
+new tests. `checks_and_exclude_conflict` is a useful one to notice: it is a
+clap conflict, so it asserts `EXIT_TOOL_ERROR` and passes *because* bito
+adopted clap's code rather than in spite of it.
+
+**Clippy's `option_if_let_else` rejects the plan's `main`.** The `match` on
+`downcast_ref` has to be `map_or_else` under `-D warnings` with nursery on.
 
 ---
 
@@ -1725,12 +1766,16 @@ Add under an `### Changed` heading in the unreleased section:
   unchanged: `BITO_*` still overrides a project or user config found by
   walking up.
 - Commands that check a threshold — `analyze`, `readability`, `grammar`,
-  `tokens`, `completeness`, and `lint` — now exit **2** when the input does not
-  meet it, and print the finding without an `Error:` prefix. Exit **1** now
-  means only that bito could not run: bad configuration, unreadable input, an
-  oversized file, or an unknown check name. Scripts testing for failure at all
-  (`if ! bito lint ...`) are unaffected; scripts testing `$? -eq 1` to detect
-  findings must test for `2`. `bito schema` publishes the full contract.
+  `tokens`, `completeness`, and `lint` — now exit **1** when the input does not
+  meet it, and print the finding without an `Error:` prefix. Exit **2** now
+  means bito could not run: bad configuration, unreadable input, an oversized
+  file, an unknown check name, or a malformed command line. Scripts testing for
+  failure at all (`if ! bito lint ...`) are unaffected. `bito schema` publishes
+  the full contract.
+- Thresholds are now enforced in JSON output. `--json`, and therefore
+  `--format auto` on a redirected stream, previously printed a report showing
+  the input had failed and still exited 0. Any pipeline that redirects bito's
+  output was not being gated at all.
 ```
 
 Do **not** add a version heading or bump any version. Release tooling owns that.
@@ -1876,6 +1921,20 @@ These surfaced during the bito migration and must appear in the playbook:
   becomes a silently empty pipe. Grep for that shape *before* flipping the
   default; in bito two of the three test failures attributed to the flag
   migration were actually this.
+- **Check whether the JSON path enforces thresholds at all.** The worse version
+  of the above. Every one of bito's six gating commands wrote
+  `if json { print; return Ok(()) }` above its threshold check, or put the
+  check in an `else if` the JSON branch skipped — so `--json` printed a report
+  saying the input failed and exited 0. Nobody noticed while JSON was opt-in.
+  Flipping the default silently disabled every CI gate that redirects output.
+  The threshold belongs *after* the format branch, not inside it.
+- **Your findings exit code probably collides with clap's.** clap exits `2` for
+  every usage error and does not let you change it, so a tool that picks `2`
+  for "issues found" makes exit 2 mean either "your prose needs work" or "your
+  command line is malformed." librebar's `validate_metadata` will not catch
+  this — it only compares codes you declare. Either pick a code clap does not
+  use, or do what bito did and let `2` mean "could not run," which is exactly
+  what a usage error is.
 - **The builder has no log-level setter.** Verbosity reaches the filter only
   through config `log_level` or a `CommonArgs` passed to `with_cli()`. If
   logging is adopted before the CLI, `-q`/`-v` go dead in between, and

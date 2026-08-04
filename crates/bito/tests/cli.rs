@@ -183,7 +183,7 @@ fn unknown_check_name_fails() {
             "readablity",
         ])
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("unknown check"));
 }
 
@@ -221,7 +221,7 @@ fn exclude_unknown_name_fails() {
             "bogus",
         ])
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("unknown check"));
 }
 
@@ -239,7 +239,7 @@ fn checks_and_exclude_conflict() {
             "style",
         ])
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("cannot be used with"));
 }
 
@@ -303,7 +303,7 @@ fn invalid_subcommand_shows_error() {
     cmd()
         .arg("not-a-command")
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("error:"));
 }
 
@@ -312,7 +312,7 @@ fn invalid_flag_shows_error() {
     cmd()
         .arg("--not-a-flag")
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("error:"));
 }
 
@@ -519,5 +519,171 @@ fn chdir_nonexistent_fails() {
     cmd()
         .args(["-C", "/nonexistent/path/that/does/not/exist", "info"])
         .assert()
-        .failure();
+        .code(i32::from(bito::EXIT_TOOL_ERROR));
+}
+
+// =============================================================================
+// Exit Codes
+// =============================================================================
+//
+// 0 = clean, 1 = issues found, 2 = bito could not run.
+//
+// `.failure()` is true of any non-zero code, so the assertions elsewhere in
+// this file never pinned these apart. These use `.code(...)`.
+
+/// Prose complex enough to fail a readability or passive-voice threshold.
+const DENSE_PROSE: &str = "\
+The implementation of the aforementioned architectural methodology necessitates
+comprehensive reconsideration of the organizational infrastructure. It was
+decided by the committee that the proposal would be reviewed. The document was
+written by the team and was approved by management.
+";
+
+fn dense_prose_file() -> tempfile::NamedTempFile {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), DENSE_PROSE).unwrap();
+    tmp
+}
+
+/// A threshold miss is a result, not a failure.
+#[test]
+fn threshold_miss_exits_with_issues_code() {
+    let tmp = dense_prose_file();
+    cmd()
+        .args([
+            "--format",
+            "text",
+            "readability",
+            tmp.path().to_str().unwrap(),
+            "--max-grade",
+            "5",
+        ])
+        .assert()
+        .code(i32::from(bito::EXIT_ISSUES_FOUND));
+}
+
+/// A finding prints bare, without the `Error:` prefix reserved for failures.
+#[test]
+fn threshold_miss_prints_without_error_prefix() {
+    let tmp = dense_prose_file();
+    cmd()
+        .args([
+            "--format",
+            "text",
+            "readability",
+            tmp.path().to_str().unwrap(),
+            "--max-grade",
+            "5",
+        ])
+        .assert()
+        .code(i32::from(bito::EXIT_ISSUES_FOUND))
+        .stderr(predicate::str::contains("Simplify sentences"))
+        .stderr(predicate::str::contains("Error:").not());
+}
+
+/// Thresholds hold in JSON mode too.
+///
+/// Every one of these commands used to return early on the JSON branch, before
+/// reaching its threshold check, so `--json` printed a report saying the input
+/// failed and exited 0 anyway. Task 5 made JSON the default for redirected
+/// output, which turned that into the default behavior for pipelines and CI.
+#[test]
+fn thresholds_hold_in_json_mode() {
+    let tmp = dense_prose_file();
+    let path = tmp.path().to_str().unwrap();
+
+    for args in [
+        vec!["readability", path, "--max-grade", "5"],
+        vec!["grammar", path, "--passive-max", "1"],
+        vec!["tokens", path, "--budget", "1"],
+        vec!["analyze", path, "--style-min", "99"],
+    ] {
+        let label = args[0].to_string();
+        cmd()
+            .args(["--format", "json"])
+            .args(&args)
+            .assert()
+            .code(predicate::eq(i32::from(bito::EXIT_ISSUES_FOUND)))
+            .stderr(predicate::str::is_empty().not());
+        // The report itself must still be on stdout.
+        let output = cmd()
+            .args(["--format", "json"])
+            .args(&args)
+            .output()
+            .unwrap();
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .unwrap_or_else(|e| panic!("{label} --format json should emit a report: {e}"));
+    }
+}
+
+/// Input that meets every threshold exits clean.
+#[test]
+fn passing_input_exits_zero() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), "The cat sat. The dog ran.").unwrap();
+    cmd()
+        .args([
+            "--format",
+            "json",
+            "readability",
+            tmp.path().to_str().unwrap(),
+            "--max-grade",
+            "20",
+        ])
+        .assert()
+        .success();
+}
+
+/// A malformed config is a real failure and keeps the tool-error code.
+#[test]
+fn config_error_exits_with_tool_error_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("bito.toml");
+    std::fs::write(&config, "not toml at all {{{").unwrap();
+
+    let tmp = dense_prose_file();
+    cmd()
+        .args([
+            "--config",
+            config.to_str().unwrap(),
+            "readability",
+            tmp.path().to_str().unwrap(),
+        ])
+        .assert()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
+        .stderr(predicate::str::contains("Error:"));
+}
+
+/// The declared contract must not let an outcome and an error share a code.
+///
+/// `validate_metadata` runs inside `schema_for`, and `parse_with` surfaces a
+/// violation as a clap error at runtime rather than a compile failure — so
+/// actually invoking `bito schema` is what catches it.
+#[test]
+fn schema_declares_disjoint_exit_codes() {
+    let output = cmd().arg("schema").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+    let schema: serde_json::Value = serde_json::from_str(&stdout).expect("schema should be JSON");
+
+    let outcomes: Vec<u64> = schema["outcomes"]
+        .as_array()
+        .expect("outcomes")
+        .iter()
+        .map(|o| o["code"].as_u64().expect("outcome code"))
+        .collect();
+    let errors: Vec<u64> = schema["errors"]
+        .as_array()
+        .expect("errors")
+        .iter()
+        .map(|e| e["exit_code"].as_u64().expect("error exit_code"))
+        .collect();
+
+    assert!(outcomes.contains(&u64::from(bito::EXIT_ISSUES_FOUND)));
+    assert!(errors.contains(&u64::from(bito::EXIT_TOOL_ERROR)));
+    for code in &outcomes {
+        assert!(
+            !errors.contains(code),
+            "exit code {code} is declared as both an outcome and an error"
+        );
+    }
 }

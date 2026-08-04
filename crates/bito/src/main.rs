@@ -5,10 +5,30 @@ use anyhow::Context;
 use bito::{Cli, Commands, commands};
 use tracing::debug;
 
-fn main() -> anyhow::Result<()> {
+fn main() -> std::process::ExitCode {
+    // `anyhow::Result` cannot express two non-zero codes: Rust's Termination
+    // impl maps every Err to 1. So `run` keeps the ergonomic signature and
+    // `main` classifies what comes back.
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => error.downcast_ref::<bito::IssuesFound>().map_or_else(
+            || {
+                eprintln!("Error: {error:?}");
+                std::process::ExitCode::from(bito::EXIT_TOOL_ERROR)
+            },
+            |issues| {
+                // A result, not a failure — no "Error:" prefix.
+                eprintln!("{issues}");
+                std::process::ExitCode::from(bito::EXIT_ISSUES_FOUND)
+            },
+        ),
+    }
+}
+
+fn run() -> anyhow::Result<()> {
     // `parse` answers `schema` and `completions` before config, logging, or
     // any network work happens.
-    let cli = librebar::cli::parse::<Cli>();
+    let cli = librebar::cli::parse_with::<Cli>(bito::schema_metadata());
 
     // Applies color, then --version-only, then -C, in that fixed order: the
     // version query cannot be broken by an unrelated bad -C, and the directory
@@ -121,8 +141,14 @@ fn main() -> anyhow::Result<()> {
             ))
         }
     };
+    // Logged here rather than in `main` because `app` owns the log writer and
+    // is dropped when this function returns.
     if let Err(ref err) = result {
-        tracing::error!(error = %err, "fatal error");
+        if err.downcast_ref::<bito::IssuesFound>().is_some() {
+            tracing::info!(issues = %err, "checks found issues");
+        } else {
+            tracing::error!(error = %err, "fatal error");
+        }
     }
     result
 }

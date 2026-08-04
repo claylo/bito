@@ -1,6 +1,6 @@
 //! Tokens command — count tokens in a file.
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use camino::Utf8PathBuf;
 use clap::Args;
 use owo_colors::OwoColorize;
@@ -9,6 +9,7 @@ use tracing::{debug, instrument};
 use bito_core::tokens::{self, Backend};
 
 use super::read_input_file;
+use crate::IssuesFound;
 
 /// Arguments for the `tokens` subcommand.
 #[derive(Args, Debug)]
@@ -45,23 +46,30 @@ pub fn cmd_tokens(
 
     if global_json {
         println!("{}", serde_json::to_string_pretty(&report)?);
-    } else if report.over_budget {
+    } else if let Some(max) = report.budget {
+        if !report.over_budget {
+            println!(
+                "{} {} is {} tokens (budget: {max})",
+                "PASS:".green(),
+                args.file,
+                report.count,
+            );
+        }
+    } else {
+        println!("{}", report.count);
+    }
+
+    // Outside the format branch on purpose: the budget is the answer, not a
+    // rendering detail, so it has to hold whether output is text or JSON.
+    if report.over_budget {
         let max = report.budget.unwrap_or(0);
-        bail!(
+        return Err(IssuesFound(format!(
             "{} is {} tokens (budget: {}). Compress.",
             args.file,
             report.count.red(),
             max,
-        );
-    } else if let Some(max) = report.budget {
-        println!(
-            "{} {} is {} tokens (budget: {max})",
-            "PASS:".green(),
-            args.file,
-            report.count,
-        );
-    } else {
-        println!("{}", report.count);
+        ))
+        .into());
     }
 
     Ok(())

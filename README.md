@@ -142,7 +142,21 @@ bito grammar <file>
 
 Built-in completeness templates: `adr`, `handoff`, `design-doc`. Define your own in a bito config file.
 
-Every command exits non-zero on failure, writes structured JSON with `--json`, and works in pipes.
+Every command writes structured JSON when stdout is redirected, and works in pipes.
+
+### Exit codes
+
+| Code | Meaning | What to do |
+|------|---------|------------|
+| `0` | Every check passed | Continue |
+| `1` | A check ran and the input missed a threshold | Read the output and fix the prose |
+| `2` | bito could not run | Fix the invocation; retrying unchanged will not help |
+
+Exit `2` covers a malformed config, unreadable or oversized input, an unknown
+check name, and command-line errors. Nothing was measured, so there is no
+result to act on. Findings print without an `Error:` prefix; failures keep it.
+
+`bito schema` publishes this contract as machine-readable JSON.
 
 ### Dialect enforcement
 

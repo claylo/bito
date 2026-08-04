@@ -1,6 +1,6 @@
 //! Completeness command — validate document sections against a template.
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use camino::Utf8PathBuf;
 use clap::Args;
 use owo_colors::OwoColorize;
@@ -9,6 +9,7 @@ use tracing::{debug, instrument};
 use bito_core::completeness::{self, SectionStatus};
 
 use super::read_input_file;
+use crate::IssuesFound;
 
 /// Arguments for the `completeness` subcommand.
 #[derive(Args, Debug)]
@@ -45,7 +46,11 @@ pub fn cmd_completeness(
             args.file,
             args.template,
         );
-    } else {
+    }
+
+    // Outside the format branch on purpose: the template either passed or it
+    // did not, whether output is text or JSON.
+    if !report.pass {
         let mut issues = Vec::new();
         for section in &report.sections {
             match section.status {
@@ -63,12 +68,11 @@ pub fn cmd_completeness(
             }
         }
         let detail = issues.join("\n");
-        bail!(
+        return Err(IssuesFound(format!(
             "{} ({} completeness check)\n{}",
-            args.file,
-            args.template,
-            detail,
-        );
+            args.file, args.template, detail,
+        ))
+        .into());
     }
 
     Ok(())

@@ -1,6 +1,6 @@
 //! Grammar command — grammar checking and passive voice detection.
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use camino::Utf8PathBuf;
 use clap::Args;
 use owo_colors::OwoColorize;
@@ -9,6 +9,7 @@ use tracing::{debug, instrument};
 use bito_core::grammar;
 
 use super::read_input_file;
+use crate::IssuesFound;
 
 /// Arguments for the `grammar` subcommand.
 #[derive(Args, Debug)]
@@ -41,7 +42,7 @@ pub fn cmd_grammar(
 
     if global_json {
         println!("{}", serde_json::to_string_pretty(&report)?);
-        return Ok(());
+        return passive_gate(&args.file, &report);
     }
 
     // Text output
@@ -86,14 +87,22 @@ pub fn cmd_grammar(
         }
     }
 
+    passive_gate(&args.file, &report)
+}
+
+/// Apply the passive-voice threshold.
+///
+/// Both output paths call this. The JSON branch used to return early and skip
+/// it entirely, so `--json` reported a violation in its payload and still
+/// exited 0.
+fn passive_gate(file: &Utf8PathBuf, report: &grammar::GrammarReport) -> anyhow::Result<()> {
     if report.over_max {
         let max = report.passive_max.unwrap_or(0.0);
-        bail!(
-            "{} has {:.1}% passive voice (max: {:.0}%). Rewrite passive constructions.",
-            args.file,
+        return Err(IssuesFound(format!(
+            "{file} has {:.1}% passive voice (max: {max:.0}%). Rewrite passive constructions.",
             report.passive_percentage,
-            max,
-        );
+        ))
+        .into());
     }
 
     Ok(())
