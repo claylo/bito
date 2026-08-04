@@ -11,6 +11,11 @@
 # Logs
 logs
 *.log
+# bito's own logs: bito.jsonl live, bito.<date>.jsonl.zst rotated.
+# Nothing writes these into a repo now that the cwd fallback is gone, but
+# BITO_LOG_DIR pointed here while debugging still would.
+*.jsonl
+*.jsonl.zst
 
 # Diagnostic bundles from `bito doctor --bundle`, written to the cwd
 bito-debug-*.tar.zst

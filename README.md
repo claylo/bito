@@ -120,7 +120,22 @@ If no rules match the file, it exits cleanly. See [docs/README.md](docs/README.m
 bito analyze my-document.md
 ```
 
-Add `--json` for machine-readable output. Add `--dialect en-gb` to enforce British spelling. Add `--checks readability,consistency` to run only specific checks. Add `--exclude style,jargon` to skip specific checks.
+Add `--dialect en-gb` to enforce British spelling. Add `--checks readability,consistency` to run only specific checks. Add `--exclude style,jargon` to skip specific checks.
+
+### Output format
+
+`--format` takes `auto` (the default), `text`, or `json`. `auto` means text on a
+terminal and JSON everywhere else, so redirecting or piping any command gives
+you a machine-readable document without a flag:
+
+```bash
+bito analyze doc.md                 # text, you are at a terminal
+bito analyze doc.md > report.json   # JSON, stdout is a file
+bito --format text analyze doc.md > report.txt   # force text
+```
+
+`--json` remains as an alias for `--format json`. If you are upgrading and a
+script parsed bito's text output from a pipe, see [docs/UPGRADING.md](docs/UPGRADING.md).
 
 ### Quality gates
 
@@ -158,6 +173,24 @@ result to act on. Findings print without an `Error:` prefix; failures keep it.
 
 `bito schema` publishes this contract as machine-readable JSON.
 
+### Diagnostics
+
+```bash
+bito doctor            # config sources, environment, resolved directories
+bito doctor --json     # same report, machine-readable
+bito doctor --bundle   # redacted bito-debug-<ts>.tar.zst for bug reports
+bito info              # version, features, config file paths
+```
+
+`doctor` reports the resolved log file alongside the config, cache, and data
+directories, so it answers "where are my logs?" directly. `--bundle` writes the
+report to a compressed archive with secrets redacted; the archive path appears
+in the JSON as `bundle` rather than on stdout, so the document stays parseable.
+
+`info` and `doctor` are the only commands that reach the network, checking for
+a newer release with a 24-hour cache. Set `BITO_NO_UPDATE_CHECK=1` to disable
+it. A failed check never fails the command.
+
 ### Dialect enforcement
 
 Set a project dialect and bito flags wrong-dialect spellings alongside mixed-spelling inconsistencies:
@@ -190,7 +223,7 @@ bito includes a built-in [MCP](https://modelcontextprotocol.io/) server, so AI c
 }
 ```
 
-This exposes seven tools: `analyze_writing`, `count_tokens`, `check_readability`, `check_completeness`, `check_grammar`, `lint_file`, and `get_info`. The `lint_file` tool resolves path-based rules from your config, so the agent can check quality before writing. Total schema cost: ~2,003 tokens. See [docs/mcp-development.md](docs/mcp-development.md) for context budget details.
+This exposes seven tools: `analyze_writing`, `count_tokens`, `check_readability`, `check_completeness`, `check_grammar`, `lint_file`, and `get_info`. The `lint_file` tool resolves path-based rules from your config, so the agent can check quality before writing. Total schema cost: ~2,003 tokens. See [docs/README.md](docs/README.md#mcp-tools) for per-tool details.
 
 ## Configuration
 
@@ -203,13 +236,18 @@ Drop a config file in your project and it takes effect automatically:
 
 Closer files win. All formats (TOML, YAML, JSON) work interchangeably.
 
-Environment variables override config files:
+Environment variables override a *discovered* config file. A file named
+explicitly with `-c/--config` outranks them.
 
 - `BITO_LOG_PATH` — log file path
 - `BITO_LOG_DIR` — directory (file name defaults to `bito.jsonl`)
 - `BITO_ENV` — environment tag (default: `dev`)
 - `BITO_NO_UPDATE_CHECK` — set to `1` to disable release update checks
-- Config file keys: `log_dir`, `log_retention_days`
+- `RUST_LOG` — log filter, e.g. `debug` or `bito=trace`
+
+Every config field also has a `BITO_`-prefixed form: `BITO_DIALECT`,
+`BITO_MAX_GRADE`, `BITO_TOKEN_BUDGET`, and so on. See
+[docs/README.md](docs/README.md#all-fields) for the full list.
 
 The live log keeps a stable name, so `tail -f bito.jsonl` follows it across
 days. On the first write of a new day the previous day's log is renamed to
@@ -347,7 +385,7 @@ Security alerts appear as issues labeled `dependabot-alert`.
 
 ## Contributing
 
-Contributions welcome! Please see [AGENTS.md](AGENTS.md) for development conventions.
+Contributions welcome. See [Development](#development) above for the build and test loop, and [docs/README.md](docs/README.md) for the full command and configuration reference.
 
 ### Commit Messages
 

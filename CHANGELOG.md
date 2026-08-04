@@ -2,11 +2,63 @@
 
 All notable changes to this project will be documented in this file.
 
+This file is generated from commit history. Behavior changes that need action
+on upgrade are written by hand in [docs/UPGRADING.md](docs/UPGRADING.md) —
+put them there, not here, or the next release overwrites them.
+
+## [Unreleased]
+
+### Features
+
+- *(cli)* Exit 1 when checks find issues, 2 when bito cannot run
+- *(update)* Notify about new releases on info and doctor
+
+### Bug Fixes
+
+- *(observability)* Use platform-correct log directories and atomic writes (#3) by @claylo in [#3](https://github.com/claylo/bito/pull/3)
+- *(logging)* Hand log file handling to librebar
+- *(deps)* Clear the rmcp and anyhow security advisories
+
+### Documentation
+
+- Fix brew tap location by @claylo
+- *(record)* Add librebar 0.4.0 adoption design spec
+- *(record)* Fold librebar's error handling patterns into the plan
+- *(handoff)* Record tasks 4 through 8
+
+### Refactor
+
+- *(config)* Drop bito-lint config names and simplify discovery (#2) by @claylo in [#2](https://github.com/claylo/bito/pull/2)
+- *(config)* Load configuration through librebar
+- *(cli)* Adopt librebar CommonArgs
+- *(doctor)* Build on librebar's diagnostics framework
+
+### Miscellaneous Tasks
+
+- Workflow refactor by @claylo
+- Update justfile recipes and rust toolchain to 1.97.1
+- *(lint)* Clear clippy errors from the 1.97.1 toolchain bump
+
+### Build
+
+- *(deps)* Add librebar 0.4 to both crates
+- *(deps)* Move to librebar 0.5.0 and refresh the plan
+- *(xtask)* Generate artifacts through librebar
+
+
+
+**Full Changelog**: https://github.com/claylo/bito/commits/HEAD
+
 ## [1.0.0] - 2026-03-25
 
 ### Features
 
 - [**breaking**] Rename bito-lint to bito, adopt ah-ah-ah for token counting (#1) by @claylo in [#1](https://github.com/claylo/bito/pull/1)
+
+### Bug Fixes
+
+- *(ci)* Bump cargo-binstall action to v1.17.8 by @claylo
+- Rename npm packages and fix npm publishing by @claylo
 
 
 
