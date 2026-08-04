@@ -23,6 +23,26 @@ pub struct LintArgs {
     pub file: Utf8PathBuf,
 }
 
+/// Report that no checks ran, in whichever format was requested.
+///
+/// JSON mode has to emit something. These two paths used to print nothing at
+/// all and return, which was survivable while JSON was opt-in but is not now
+/// that `--format auto` makes it the default for redirected output: a piped
+/// `bito lint` would hand its consumer an empty stream to parse.
+///
+/// The shape matches `LintReport`'s `file`/`pass` contract so a consumer can
+/// read it the same way, with `skipped` explaining why nothing ran.
+fn report_skip(file: &Utf8PathBuf, global_json: bool, reason: &str) {
+    if global_json {
+        println!(
+            "{}",
+            serde_json::json!({ "file": file.as_str(), "pass": true, "skipped": reason })
+        );
+    } else {
+        println!("{} {reason}", "SKIP:".dimmed());
+    }
+}
+
 /// Lint a file according to project rules.
 #[instrument(name = "cmd_lint", skip_all, fields(file = %args.file))]
 pub fn cmd_lint(
@@ -36,9 +56,7 @@ pub fn cmd_lint(
     let rules = match config.rules {
         Some(ref rules) => rules,
         None => {
-            if !global_json {
-                println!("{} no rules configured", "SKIP:".dimmed());
-            }
+            report_skip(&args.file, global_json, "no rules configured");
             return Ok(());
         }
     };
@@ -49,9 +67,11 @@ pub fn cmd_lint(
 
     if resolved.is_empty() {
         debug!(file = %args.file, "no rules match this file");
-        if !global_json {
-            println!("{} no rules match {}", "SKIP:".dimmed(), args.file);
-        }
+        report_skip(
+            &args.file,
+            global_json,
+            &format!("no rules match {}", args.file),
+        );
         return Ok(());
     }
 

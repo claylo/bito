@@ -756,7 +756,7 @@ config by string name, so a rename would compile and silently stop pruning.
 - Modify: `crates/bito/src/main.rs`
 - Test: `crates/bito/tests/cli.rs` (must pass unchanged)
 
-- [ ] **Step 1: Confirm the CLI baseline passes**
+- [x] **Step 1: Confirm the CLI baseline passes**
 
 ```bash
 cargo nextest run --test cli
@@ -764,7 +764,7 @@ cargo nextest run --test cli
 
 Expected: PASS. These tests cover `--json`, `-q`, `-v`, `-vv`, `--color`, `--version-only`, and help output. They are the compatibility contract.
 
-- [ ] **Step 2: Replace the hand-rolled globals with `CommonArgs`**
+- [x] **Step 2: Replace the hand-rolled globals with `CommonArgs`**
 
 In `crates/bito/src/lib.rs`, delete the `ColorChoice` enum and its `impl` block entirely, and delete the `command()` function. Replace the `Cli` struct with:
 
@@ -812,7 +812,7 @@ ENVIRONMENT VARIABLES:
 ";
 ```
 
-- [ ] **Step 3: Update `main.rs` parsing and flag threading**
+- [x] **Step 3: Update `main.rs` parsing and flag threading**
 
 Replace the top of `main` (currently lines 14-32) with:
 
@@ -852,7 +852,7 @@ Update the `debug!` call to use the new fields:
     );
 ```
 
-- [ ] **Step 4: Run the CLI compatibility suite**
+- [x] **Step 4: Run the CLI compatibility suite**
 
 ```bash
 cargo nextest run --test cli
@@ -860,7 +860,7 @@ cargo nextest run --test cli
 
 Expected: all PASS, unmodified. `--json` still works because librebar keeps it as a hidden alias for `--format json`.
 
-- [ ] **Step 5: Verify the new subcommands and the format default**
+- [x] **Step 5: Verify the new subcommands and the format default**
 
 ```bash
 cargo run -p bito -- schema | head -5
@@ -873,13 +873,13 @@ Expected: `schema` emits a CLI Spec v0.2 JSON document; `completions zsh` emits 
 
 That last pair is the documented behavior change. Confirm it works as intended — it is the CLI Spec behavior and correct for an agent-facing tool, but it changes `bito analyze > out.txt` from text to JSON.
 
-- [ ] **Step 6: Full test run and check**
+- [x] **Step 6: Full test run and check**
 
 ```bash
 cargo nextest run && just check
 ```
 
-- [ ] **Step 7: Write commit.txt**
+- [x] **Step 7: Write commit.txt**
 
 ```
 refactor(cli): adopt librebar CommonArgs
@@ -902,6 +902,45 @@ Release-Impact: medium
 ```
 
 Then tell Clay to run `gtxt`.
+
+### What Task 5 actually did differently
+
+**Step 2's `Cli` snippet still declared bito's own `config` field.** librebar
+0.5.0 put `-c/--config` on `CommonArgs`, so flattening both is the clap
+"argument names must be unique" panic the 0.5.0 notes warned about — at
+startup, not at compile time. The field is gone; `main` reads
+`cli.common.config_path()`.
+
+**`parse` does not install `with_help_short`.** Step 2 says it does.
+`cli::parse` → `parse_with` → `try_parse_from` → `command::<T>()`, which is
+`T::command()` plus the `schema` and `completions` subcommands, and nothing
+else. So `disable_help_flag` could not simply come out alongside the manual
+`HelpShort` arg: leaving it would have removed `--help` entirely, and layering
+`with_help_short` over clap's auto-help is a second collision. Both came out
+and clap's default help is now in force. **This is a visible change:** `-h` is
+still compact at 35 lines, but `--help` went from 35 to 66. Changelogged in
+Task 9.
+
+**`command()` was kept, not deleted.** `xtask/src/commands/man.rs:18` and
+`completions.rs:22` both call it, and xtask is not ported until Task 6.
+Deleting it here fails Task 5's own build gate — the same rule this plan
+already learned about figment. It is now a one-line `Cli::command()`. Note that
+xtask-generated completions and man pages therefore do *not* yet cover the
+`schema` and `completions` subcommands; Task 6 fixes that.
+
+**`--format auto` exposed a latent bug in `lint`.** Both skip paths — no rules
+configured, no rules matching — printed nothing at all in JSON mode and
+returned `Ok`. Survivable while `--json` was opt-in; not once redirected output
+defaults to JSON, since `bito lint file | jq` would be handed an empty stream.
+`report_skip` now emits `{"file", "pass": true, "skipped": <reason>}`, matching
+`LintReport`'s `file`/`pass` contract. **Two of the three CLI test failures
+were this**, not the flag migration.
+
+**Three tests changed, one added.** `info_help_shows_command_options` asserted
+`--json` appears in help; it is now `hide = true` by design, so the test
+asserts `--format` is present and `--json` is not. The two lint skip tests
+gained `--format text` to keep testing the text path they were written for.
+`lint_skip_emits_json_when_redirected` is new and covers the bug above.
 
 ---
 
@@ -1642,6 +1681,12 @@ Add under an `### Changed` heading in the unreleased section:
 - Rotated log files are deleted after seven days. The new `log_retention_days`
   config field changes that window; `0` keeps them forever. Nobody is affected
   yet — bito has not shipped with librebar — but the default is new behavior.
+- `--help` now prints clap's long help; previously `-h` and `--help` both
+  printed the compact form. `-h` is unchanged.
+- `bito lint` on a file with no matching rules now emits
+  `{"file", "pass": true, "skipped": <reason>}` in JSON mode. It previously
+  printed nothing, which only became visible once redirected output started
+  defaulting to JSON.
 - A config file named with `-c` now takes precedence over `BITO_*` environment
   variables. The previous loader merged the environment last, so an exported
   variable silently overrode an explicitly requested file. Discovery is
@@ -1775,6 +1820,24 @@ These surfaced during the bito migration and must appear in the playbook:
   `serde_json::to_value` and a string key lookup. Renaming one of those fields
   compiles cleanly and silently stops the setting from doing anything. Pin the
   names in a test that serializes `Config::default()`.
+- **`CommonArgs` grew `-c/--config` in 0.5.0.** Any app that already had its own
+  `-c` now collides on flatten, and clap reports duplicate argument names by
+  **panicking at startup**, not by failing to compile. `cargo build` stays
+  green and every invocation dies. Grep the consuming struct for each flag
+  `CommonArgs` owns before flattening: `--version-only`, `-C`, `-c`, `-q`,
+  `-v`, `--color`, `--format`, `--json`.
+- **`cli::parse` does not apply `with_help_short`.** The function exists and is
+  public, but the parse path never calls it — it builds `T::command()` plus the
+  two librebar subcommands and stops. An app that had made `-h` and `--help`
+  both compact cannot keep that through `parse`, and `disable_help_flag` plus
+  `with_help_short` collide with clap's auto-help. Expect `--help` to get
+  longer. *(Worth an upstream fix.)*
+- **Making JSON the default output finds every place JSON output was wrong.**
+  `--format auto` promotes JSON from an opt-in flag to the default for any
+  redirected stream, so every `if !json { println!(...) }` with no `else`
+  becomes a silently empty pipe. Grep for that shape *before* flipping the
+  default; in bito two of the three test failures attributed to the flag
+  migration were actually this.
 - **The builder has no log-level setter.** Verbosity reaches the filter only
   through config `log_level` or a `CommonArgs` passed to `with_cli()`. If
   logging is adopted before the CLI, `-q`/`-v` go dead in between, and

@@ -3,43 +3,17 @@
 
 use anyhow::Context;
 use bito::{Cli, Commands, commands};
-use clap::FromArgMatches;
 use tracing::debug;
 
-/// Carry `-q`/`-v` into librebar's log filter.
-///
-/// The filter default comes from either the config's `log_level` or the
-/// `quiet`/`verbose` fields of a `CommonArgs`; librebar's builder exposes no
-/// direct log-level setter. `CommonArgs` also cannot be constructed by hand —
-/// one field is crate-private — so the flags are round-tripped through clap.
-///
-/// Task 5 flattens `CommonArgs` into `Cli` and deletes this.
-fn verbosity(quiet: bool, verbose: u8) -> librebar::cli::CommonArgs {
-    use librebar::cli::clap::Parser as _;
-
-    #[derive(librebar::cli::clap::Parser)]
-    struct Verbosity {
-        #[command(flatten)]
-        common: librebar::cli::CommonArgs,
-    }
-
-    let mut argv = vec!["bito"];
-    if quiet {
-        argv.push("--quiet");
-    }
-    argv.extend(std::iter::repeat_n("--verbose", verbose as usize));
-
-    Verbosity::parse_from(argv).common
-}
-
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::from_arg_matches(&bito::command().get_matches())
-        .expect("clap mismatch between Cli derive and command()");
+    // `parse` answers `schema` and `completions` before config, logging, or
+    // any network work happens.
+    let cli = librebar::cli::parse::<Cli>();
 
-    cli.color.apply();
-
-    if cli.version_only {
-        println!("{}", env!("CARGO_PKG_VERSION"));
+    // Applies color, then --version-only, then -C, in that fixed order: the
+    // version query cannot be broken by an unrelated bad -C, and the directory
+    // change lands before config discovery walks up from cwd.
+    if cli.common.apply(env!("CARGO_PKG_VERSION"))?.is_exit() {
         return Ok(());
     }
 
@@ -48,10 +22,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     };
 
-    if let Some(ref dir) = cli.chdir {
-        std::env::set_current_dir(dir)
-            .with_context(|| format!("failed to change directory to {}", dir.display()))?;
-    }
+    let json = matches!(
+        cli.common.output_format(),
+        librebar::cli::ResolvedOutputFormat::Json
+    );
 
     let cwd = std::env::current_dir().context("failed to determine current directory")?;
     let cwd = camino::Utf8PathBuf::try_from(cwd).map_err(|e| {
@@ -60,18 +34,7 @@ fn main() -> anyhow::Result<()> {
             e.into_path_buf().display()
         )
     })?;
-    let config_path = cli
-        .config
-        .as_ref()
-        .map(|p| {
-            camino::Utf8PathBuf::try_from(p.clone()).map_err(|e| {
-                anyhow::anyhow!(
-                    "config path is not valid UTF-8: {}",
-                    e.into_path_buf().display()
-                )
-            })
-        })
-        .transpose()?;
+    let config_path = cli.common.config_path()?;
 
     let (config, config_sources) = bito_core::config::load(&cwd, config_path.as_deref())
         .context("failed to load configuration")?;
@@ -82,7 +45,7 @@ fn main() -> anyhow::Result<()> {
     // semantics.
     let app = librebar::init(env!("CARGO_PKG_NAME"))
         .with_version(env!("CARGO_PKG_VERSION"))
-        .with_cli(verbosity(cli.quiet, cli.verbose))
+        .with_cli(cli.common)
         .with_config(config)
         .logging()
         .crash_handler()
@@ -92,11 +55,9 @@ fn main() -> anyhow::Result<()> {
     let config = app.config().clone();
 
     debug!(
-        verbose = cli.verbose,
-        quiet = cli.quiet,
-        json = cli.json,
-        color = ?cli.color,
-        chdir = ?cli.chdir,
+        verbose = app.cli().verbose,
+        quiet = app.cli().quiet,
+        json,
         "CLI initialized"
     );
 
@@ -112,7 +73,7 @@ fn main() -> anyhow::Result<()> {
     let result = match command {
         Commands::Analyze(args) => commands::analyze::cmd_analyze(
             args,
-            cli.json,
+            json,
             config.style_min_score,
             config.max_grade,
             config.passive_max_percent,
@@ -121,31 +82,31 @@ fn main() -> anyhow::Result<()> {
         ),
         Commands::Tokens(args) => commands::tokens::cmd_tokens(
             args,
-            cli.json,
+            json,
             config.token_budget,
             config.tokenizer,
             max_input,
         ),
         Commands::Readability(args) => {
-            commands::readability::cmd_readability(args, cli.json, config.max_grade, max_input)
+            commands::readability::cmd_readability(args, json, config.max_grade, max_input)
         }
         Commands::Completeness(args) => commands::completeness::cmd_completeness(
             args,
-            cli.json,
+            json,
             config.templates.as_ref(),
             max_input,
         ),
         Commands::Grammar(args) => {
-            commands::grammar::cmd_grammar(args, cli.json, config.passive_max_percent, max_input)
+            commands::grammar::cmd_grammar(args, json, config.passive_max_percent, max_input)
         }
-        Commands::Lint(args) => commands::lint::cmd_lint(args, cli.json, &config, max_input),
+        Commands::Lint(args) => commands::lint::cmd_lint(args, json, &config, max_input),
         Commands::Custom(args) => {
-            commands::custom::cmd_custom(args, cli.json, &config, &config_sources)
+            commands::custom::cmd_custom(args, json, &config, &config_sources)
         }
         Commands::Doctor(args) => {
-            commands::doctor::cmd_doctor(args, cli.json, &config, &config_sources, &cwd)
+            commands::doctor::cmd_doctor(args, json, &config, &config_sources, &cwd)
         }
-        Commands::Info(args) => commands::info::cmd_info(args, cli.json, &config, &config_sources),
+        Commands::Info(args) => commands::info::cmd_info(args, json, &config, &config_sources),
         #[cfg(feature = "mcp")]
         Commands::Serve(args) => {
             let config_dir = config_sources

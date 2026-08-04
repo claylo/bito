@@ -111,13 +111,16 @@ fn info_json_contains_expected_fields() {
         .stdout(predicate::str::contains("\"version\""));
 }
 
+/// `--format` is the documented output flag. `--json` still works but is
+/// hidden, so it is deliberately absent from help.
 #[test]
 fn info_help_shows_command_options() {
     cmd()
         .args(["info", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("--json"));
+        .stdout(predicate::str::contains("--format"))
+        .stdout(predicate::str::contains("--json").not());
 }
 
 // =============================================================================
@@ -322,10 +325,37 @@ fn lint_no_rules_skips() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), "The cat sat on the mat.").unwrap();
     cmd()
-        .args(["lint", tmp.path().to_str().unwrap()])
+        .args(["--format", "text", "lint", tmp.path().to_str().unwrap()])
         .assert()
         .success()
         .stdout(predicate::str::contains("no rules"));
+}
+
+/// A skipped lint must still emit parseable JSON.
+///
+/// Both skip paths used to print nothing at all in JSON mode. That was
+/// invisible while `--json` was opt-in; `--format auto` makes JSON the default
+/// for redirected output, so `bito lint file | jq` would have been handed an
+/// empty stream.
+#[test]
+fn lint_skip_emits_json_when_redirected() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), "The cat sat on the mat.").unwrap();
+
+    // assert_cmd pipes stdout, so `--format auto` resolves to JSON here.
+    let output = cmd()
+        .args(["lint", tmp.path().to_str().unwrap()])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("a skipped lint should still emit valid JSON");
+    assert_eq!(json["pass"], true);
+    assert!(
+        json["skipped"].is_string(),
+        "skip reason should be reported: {json}"
+    );
 }
 
 #[test]
@@ -391,6 +421,8 @@ fn lint_no_match_skips_cleanly() {
 
     cmd()
         .args([
+            "--format",
+            "text",
             "--config",
             config_path.to_str().unwrap(),
             "lint",

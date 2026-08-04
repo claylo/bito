@@ -19,38 +19,12 @@ pub mod commands;
 #[cfg(feature = "mcp")]
 pub mod server;
 
-use clap::{CommandFactory, Parser, Subcommand};
-use std::path::PathBuf;
-
-/// Color output preference.
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
-pub enum ColorChoice {
-    /// Detect terminal capabilities automatically.
-    #[default]
-    Auto,
-    /// Always emit colors.
-    Always,
-    /// Never emit colors.
-    Never,
-}
-
-impl ColorChoice {
-    /// Configure global color output based on this choice.
-    ///
-    /// Call this once at startup to set the color mode.
-    pub fn apply(self) {
-        match self {
-            Self::Auto => {} // owo-colors auto-detects by default
-            Self::Always => owo_colors::set_override(true),
-            Self::Never => owo_colors::set_override(false),
-        }
-    }
-}
+use librebar::cli::clap::{CommandFactory, Parser, Subcommand};
 
 const ENV_HELP: &str = "\
 ENVIRONMENT VARIABLES:
     RUST_LOG              Log filter (e.g., debug, bito=trace)
-    BITO_LOG_PATH         Log file path (rotated daily)
+    BITO_LOG_PATH         Log file path
     BITO_LOG_DIR          Log directory
     BITO_TOKENIZER        Tokenizer backend (claude, openai)
 ";
@@ -61,39 +35,19 @@ ENVIRONMENT VARIABLES:
 #[command(about = "Quality gate tooling for building-in-the-open artifacts", long_about = None)]
 #[command(version, arg_required_else_help = true)]
 #[command(after_help = ENV_HELP)]
-#[command(disable_help_flag = true)]
 pub struct Cli {
+    /// Flags shared by every librebar-based CLI.
+    ///
+    /// Supplies `-q`, `-v`, `-C`, `-c`, `--color`, `--format`, and
+    /// `--version-only`, all global. bito declares none of these itself:
+    /// redeclaring one is a clap name collision, which panics at startup
+    /// rather than failing to compile.
+    #[command(flatten)]
+    pub common: librebar::cli::CommonArgs,
+
     /// The subcommand to execute.
     #[command(subcommand)]
     pub command: Option<Commands>,
-
-    /// Print only the version number (for scripting)
-    #[arg(long)]
-    pub version_only: bool,
-
-    /// Path to configuration file (overrides discovery)
-    #[arg(short, long, global = true, value_name = "FILE")]
-    pub config: Option<PathBuf>,
-
-    /// Run as if started in DIR
-    #[arg(short = 'C', long, global = true)]
-    pub chdir: Option<PathBuf>,
-
-    /// Only print errors (suppresses warnings/info)
-    #[arg(short, long, global = true)]
-    pub quiet: bool,
-
-    /// More detail (repeatable; e.g. -vv)
-    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
-    pub verbose: u8,
-
-    /// Colorize output
-    #[arg(long, global = true, value_enum, default_value_t)]
-    pub color: ColorChoice,
-
-    /// Output as JSON (for scripting)
-    #[arg(long, global = true)]
-    pub json: bool,
 }
 
 /// Available subcommands for the CLI.
@@ -131,17 +85,10 @@ pub enum Commands {
 
 /// Returns the clap command for documentation generation.
 ///
-/// Adds a custom `-h`/`--help` flag using `HelpShort` so both render
-/// the compact single-line format. This is done at the Command level
-/// (not as a struct field) because clap's derive treats `HelpShort`
-/// as a value-less exit action that conflicts with struct population.
-pub fn command() -> clap::Command {
-    Cli::command().arg(
-        clap::Arg::new("help")
-            .short('h')
-            .long("help")
-            .help("Print help")
-            .global(true)
-            .action(clap::ArgAction::HelpShort),
-    )
+/// Still here for `xtask`'s man page and completion generators, which Task 6
+/// repoints at librebar's own. Note that it does not carry the `schema` and
+/// `completions` subcommands — `librebar::cli::parse` adds those to the
+/// running binary, not to this tree.
+pub fn command() -> librebar::cli::clap::Command {
+    Cli::command()
 }
