@@ -70,8 +70,15 @@ See [Custom content entries](#custom-content-entries) for configuration details.
 
 ```bash
 bito doctor          # shows config sources, environment, diagnostics
+bito doctor --bundle # writes a redacted bito-debug-<ts>.tar.zst for bug reports
 bito info            # shows version, features, config file paths
 ```
+
+`doctor` reports the resolved log file alongside the config, cache, and data
+directories, so it answers "where are my logs?" directly. `--bundle` writes the
+report to a compressed archive with secrets redacted; the archive path appears
+in `doctor --json` output as `bundle` rather than on stdout, so the JSON stays
+parseable.
 
 ### serve
 

@@ -12,6 +12,9 @@
 logs
 *.log
 
+# Diagnostic bundles from `bito doctor --bundle`, written to the cwd
+bito-debug-*.tar.zst
+
 # dotenv environment variable files
 # NOTE: We intentionally track a template `.env`; this prevents new local ones from being committed.
 .env

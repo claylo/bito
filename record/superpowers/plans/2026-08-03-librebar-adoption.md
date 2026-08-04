@@ -1343,7 +1343,7 @@ pub trait DoctorCheck {
 
 with `CheckResult::new(CheckStatus::{Ok,Warn,Error}, message)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to the `mod tests` block at the bottom of `crates/bito/src/commands/doctor.rs`:
 
@@ -1374,7 +1374,7 @@ fn tokenizer_check_passes_with_default_backend() {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 ```bash
 cargo nextest run -p bito doctor
@@ -1382,7 +1382,7 @@ cargo nextest run -p bito doctor
 
 Expected: FAIL — `LogDirCheck` and `TokenizerCheck` do not exist.
 
-- [ ] **Step 3: Implement the checks**
+- [x] **Step 3: Implement the checks**
 
 Replace the bespoke `DoctorReport`, `HealthChecks`, `DirectoryPaths`, `ConfigStatus`, and `EnvironmentInfo` structs and their `gather`/rendering code with `DoctorCheck` impls. Add:
 
@@ -1478,7 +1478,7 @@ Adjust `tokens::counter_for`, `abbreviations::len`, `irregular_verbs::len`, and 
 
 Add a config check that reports `sources.primary_file()`, and a word-list check mirroring `DictionaryCheck`, following the same shape.
 
-- [ ] **Step 4: Wire the runner into `cmd_doctor`**
+- [x] **Step 4: Wire the runner into `cmd_doctor`**
 
 ```rust
     let mut runner = DoctorRunner::new();
@@ -1501,7 +1501,7 @@ Add a config check that reports `sources.primary_file()`, and a word-list check 
 
 Keep the existing JSON output shape. The `doctor --json` structure is a consumed contract; changing field names is a breaking change that is not in scope.
 
-- [ ] **Step 5: Add the `--bundle` flag**
+- [x] **Step 5: Add the `--bundle` flag**
 
 In `crates/bito/src/commands/doctor.rs`, replace the empty `DoctorArgs`:
 
@@ -1529,7 +1529,7 @@ In `cmd_doctor`, after computing `results`:
 
 `DebugBundle` applies librebar's `SecretRedactor` by default, so config values are sanitized before they land in the archive.
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 ```bash
 cargo nextest run -p bito doctor
@@ -1537,7 +1537,7 @@ cargo nextest run -p bito doctor
 
 Expected: PASS.
 
-- [ ] **Step 7: Exercise both output paths by hand**
+- [x] **Step 7: Exercise both output paths by hand**
 
 ```bash
 cargo run -p bito -- doctor
@@ -1547,13 +1547,13 @@ cargo run -p bito -- doctor --bundle && ls bito-*.tar.zst
 
 Expected: the text report lists each check with a status; the JSON keeps its existing shape; the bundle writes an archive. Remove the archive afterward.
 
-- [ ] **Step 8: Full check**
+- [x] **Step 8: Full check**
 
 ```bash
 cargo nextest run && just check
 ```
 
-- [ ] **Step 9: Write commit.txt**
+- [x] **Step 9: Write commit.txt**
 
 ```
 refactor(doctor): build on librebar's diagnostics framework
@@ -1573,6 +1573,45 @@ Release-Impact: medium
 ```
 
 Then tell Clay to run `gtxt`.
+
+### What Task 7 actually did differently
+
+**Keeping the JSON shape and moving to `DoctorCheck` pull in opposite
+directions.** The checks return strings; the JSON contract holds typed values
+(`tokenizer: bool`, `abbreviations: 170`). Computing both independently would
+let them drift. `DoctorReport::gather` stays the single source of truth, and
+`build_runner` constructs the checks *from* the gathered report — so the JSON
+is byte-identical apart from deliberate additions, and the text output cannot
+disagree with it.
+
+**Step 1's test cannot compile.** It mutates the environment via
+`unsafe { std::env::set_var(...) }`, and this workspace denies `unsafe_code` as
+a lint, which arrives as `-D unsafe-code` and fails the build. Rather than
+`#[allow]` it, the resolution moved into a pure
+`resolved_log_target_with(path_override, dir_override)` that the test calls
+directly. Better anyway: no process-global mutation, and deterministic no
+matter how the test binary is scheduled.
+
+**`--bundle` broke `doctor --json`.** Step 5 prints `wrote {path}` after the
+report. In JSON mode that appends a bare line to the document, so
+`doctor --json --bundle | jq` fails. The bundle is now written *before*
+rendering and its path travels as a `bundle` field in JSON, or on stdout in
+text mode. The field is `skip_serializing_if = "Option::is_none"`, so the
+document is unchanged when `--bundle` is absent.
+
+**Category order matters.** `format_report` emits a heading only when the
+category *changes*, so a category split across non-adjacent checks would print
+its heading twice. `runner_covers_every_category` asserts contiguity.
+
+**Additions beyond the plan.** `directories.log` in JSON (additive — this is
+where the Task 4 logging fix becomes visible to users), a `cwd` directory
+check, a `doctor_json_keeps_its_documented_shape` test pinning the contract the
+plan called consumed but nothing verified, a `.gitignore` entry for
+`bito-debug-*.tar.zst` since `--bundle` writes into the working directory, and
+the `docs/README.md` doctor section.
+
+**The spinner now only runs in text mode.** It wrote to stderr during
+`--json`, which was harmless but pointless.
 
 ---
 
@@ -1928,6 +1967,14 @@ These surfaced during the bito migration and must appear in the playbook:
   saying the input failed and exited 0. Nobody noticed while JSON was opt-in.
   Flipping the default silently disabled every CI gate that redirects output.
   The threshold belongs *after* the format branch, not inside it.
+- **A side-effect notice printed after a JSON document breaks it.** `doctor
+  --bundle` announced `wrote <path>` on stdout, which is fine in text mode and
+  makes the JSON unparseable. Anything a command reports about its own actions
+  has to go into the document or to stderr — never appended after it.
+- **A "consumed contract" nobody tests is a contract nobody has.** The plan
+  named `doctor --json` untouchable and there was no test on its field names,
+  so any rename during the port would have shipped. Pin the shape before
+  refactoring behind it.
 - **Your findings exit code probably collides with clap's.** clap exits `2` for
   every usage error and does not let you change it, so a tool that picks `2`
   for "issues found" makes exit 2 mean either "your prose needs work" or "your
