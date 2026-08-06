@@ -794,7 +794,7 @@ rules:
       completeness:
         template: handoff
 "#;
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: Config = serde_saphyr::from_str(yaml).unwrap();
         let rules = config.rules.expect("rules should be present");
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].paths, vec!["docs/**/*.md"]);
@@ -815,7 +815,7 @@ rules:
     #[test]
     fn empty_config_still_works_with_rules_field() {
         let yaml = "log_level: info\n";
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: Config = serde_saphyr::from_str(yaml).unwrap();
         assert!(config.rules.is_none());
     }
 
@@ -842,7 +842,7 @@ rules:
     fn log_retention_days_defaults_to_unset() {
         assert!(Config::default().log_retention_days.is_none());
 
-        let config: Config = serde_yaml::from_str("log_retention_days: 0\n").unwrap();
+        let config: Config = serde_saphyr::from_str("log_retention_days: 0\n").unwrap();
         assert_eq!(config.log_retention_days, Some(0));
     }
 
@@ -900,7 +900,7 @@ custom:
   house-style:
     file: "docs/style.md"
 "#;
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: Config = serde_saphyr::from_str(yaml).unwrap();
         let custom = config.custom.expect("custom should be present");
         assert_eq!(custom.len(), 2);
         let voice = custom.get("voice").unwrap();

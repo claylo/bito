@@ -346,15 +346,20 @@ cargo xtask completions --shell zsh
 
 ### Configuration System
 
-The `ConfigLoader` provides flexible configuration discovery:
+Configuration discovery is handled by `config::load`:
 
 ```rust
-use bito_core::config::ConfigLoader;
+use camino::Utf8Path;
+use bito_core::config;
 
-let config = ConfigLoader::new()
-    .with_project_search(std::env::current_dir()?)
-    .with_user_config(true)
-    .load()?;
+let cwd = Utf8Path::new(".");
+let (cfg, sources) = config::load(cwd, None)?;
+```
+
+Pass an explicit path as the second argument to override discovery:
+
+```rust
+let (cfg, sources) = config::load(cwd, Some(Utf8Path::new("my-config.yaml")))?;
 ```
 
 Features:

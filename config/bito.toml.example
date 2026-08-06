@@ -36,7 +36,6 @@ log_level = "info"
 # - BITO_ENV=dev
 # Config options:
 # - log_dir = "/path/to/log/dir"
-# - otel_endpoint = "http://127.0.0.1:4317"
 
 # ------------------------------------------------------------------------------
 # Quality Gates

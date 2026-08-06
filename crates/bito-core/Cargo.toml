@@ -32,7 +32,6 @@ clap = ["dep:clap"]
 
 [dependencies]
 ah-ah-ah = "0.1"
-anyhow = "1.0"
 camino = { version = "1.2", features = ["serde1"] }
 clap = { version = "4.6", features = ["derive"], optional = true }
 globset = "0.4"
@@ -46,7 +45,7 @@ thiserror = "2.0"
 tracing = "0.1"
 
 [dev-dependencies]
-serde_yaml = "0.9"
+serde-saphyr = "1.0"
 tempfile = "3.27"
 
 [lints]

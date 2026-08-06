@@ -1,0 +1,49 @@
+$font = 0.14in
+boxht = $font * 2.67
+boxrad = $font * 0.17
+movewid = $font * 2.67
+moveht = $font * 2.67
+$ink = 0x293845
+$blue = 0xdcebf7
+$gold = 0xffe6a7
+$green = 0xdcefd8
+$paper = 0xf8f6f1
+fontscale = 1.0
+margin = 0.28in
+
+Title: text "Bito codebase terrain" bold color $ink
+Subtitle: text "11,632 Rust lines · 14 reviewed findings" color 0x61717d \
+    with .n at 0.08in below Title.s
+
+Core: box width 4.50in height 0.90in rad 0.08in fill $gold color 0xb04a36 \
+    thick thick thick "bito-core" bold "7,239 lines · 8 findings" \
+    with .n at 0.40in below Subtitle.s
+
+Cli: box width 2.69in height 0.72in rad 0.08in fill $blue color 0x4c7398 \
+    thick thick "bito CLI" bold "4,326 lines · 2 findings" \
+    with .nw at 0.38in below Core.sw
+
+XtaskBar: box width 0.48in height 0.42in rad 0.06in fill $green color 0x5f8060 \
+    with .nw at 0.38in below Cli.sw
+XtaskLabel: text "xtask · 209 lines · 0 findings" color $ink \
+    with .w at 0.14in right of XtaskBar.e
+
+Contract: box width 2.20in height 1.28in rad 0.08in fill $paper color 0x8b6d3f \
+    thick thick "Repository contracts" bold \
+    "docs · config · lockfile" "4 findings" \
+    with .w at 0.75in right of Core.e
+
+arrow from Cli.n to Core.s chop color 0x4c7398 thick thick \
+    "analysis API" small above
+
+line from Contract.w left 0.30in then down until even with Cli then to Cli.e \
+    color 0x8b6d3f dashed
+
+LegendA: line right 0.48in thick thick thick color 0xb04a36 \
+    from 0.18in below XtaskBar.s
+text "stroke = finding density" small color 0x61717d \
+    with .w at 0.12in right of LegendA.e
+LegendB: line right 0.48in color 0x61717d \
+    from 0.23in below LegendA.start
+text "bar width = source volume" small color 0x61717d \
+    with .w at 0.12in right of LegendB.e

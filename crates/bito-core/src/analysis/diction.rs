@@ -1,6 +1,5 @@
 //! Vague word analysis.
 
-use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use crate::word_lists::{VAGUE_PHRASES, VAGUE_WORDS};
@@ -10,21 +9,19 @@ use super::reports::{DictionReport, VagueWordCount};
 /// Analyze vague word and phrase usage.
 #[tracing::instrument(skip_all)]
 pub fn analyze_diction(text: &str, words: &[String]) -> DictionReport {
-    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut counts: HashMap<&str, usize> = HashMap::new();
 
-    // Check single words
     for w in words {
         if VAGUE_WORDS.contains(w.as_str()) {
-            *counts.entry(w.clone()).or_insert(0) += 1;
+            *counts.entry(w.as_str()).or_insert(0) += 1;
         }
     }
 
-    // Check phrases
     let lower = text.to_lowercase();
     for &phrase in VAGUE_PHRASES.iter() {
         let occurrences = lower.matches(phrase).count();
         if occurrences > 0 {
-            *counts.entry(phrase.to_string()).or_insert(0) += occurrences;
+            *counts.entry(phrase).or_insert(0) += occurrences;
         }
     }
 
@@ -33,9 +30,12 @@ pub fn analyze_diction(text: &str, words: &[String]) -> DictionReport {
 
     let mut most_common: Vec<VagueWordCount> = counts
         .into_iter()
-        .map(|(word, count)| VagueWordCount { word, count })
+        .map(|(word, count)| VagueWordCount {
+            word: word.to_string(),
+            count,
+        })
         .collect();
-    most_common.sort_by_key(|x| Reverse(x.count));
+    most_common.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.word.cmp(&b.word)));
 
     DictionReport {
         total_vague,

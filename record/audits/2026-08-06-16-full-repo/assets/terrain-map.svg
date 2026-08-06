@@ -1,0 +1,25 @@
+<svg xmlns='http://www.w3.org/2000/svg' style='font-size:initial;' class="pikchr" viewBox="0 0 1157.76 677.251" data-pikchr-date="20260102012653">
+<text x="366.48" y="57.6" text-anchor="middle" font-weight="bold" fill="rgb(41,56,69)" dominant-baseline="central">Bito codebase terrain</text>
+<text x="366.48" y="99.36" text-anchor="middle" fill="rgb(97,113,125)" dominant-baseline="central">11,632 Rust lines · 14 reviewed findings</text>
+<path d="M54,301.68L678.96,301.68A11.52 11.52 0 0 0 690.48 290.16L690.48,183.6A11.52 11.52 0 0 0 678.96 172.08L54,172.08A11.52 11.52 0 0 0 42.48 183.6L42.48,290.16A11.52 11.52 0 0 0 54 301.68Z"  style="fill:rgb(255,230,167);stroke-width:7.29;stroke:rgb(176,74,54);" />
+<text x="366.48" y="226.8" text-anchor="middle" font-weight="bold" fill="rgb(176,74,54)" dominant-baseline="central">bito-core</text>
+<text x="366.48" y="246.96" text-anchor="middle" fill="rgb(176,74,54)" dominant-baseline="central">7,239 lines · 8 findings</text>
+<path d="M54,453.332L418.32,453.332A11.52 11.52 0 0 0 429.84 441.812L429.84,361.172A11.52 11.52 0 0 0 418.32 349.652L54,349.652A11.52 11.52 0 0 0 42.48 361.172L42.48,441.812A11.52 11.52 0 0 0 54 453.332Z"  style="fill:rgb(220,235,247);stroke-width:4.86;stroke:rgb(76,115,152);" />
+<text x="236.16" y="391.412" text-anchor="middle" font-weight="bold" fill="rgb(76,115,152)" dominant-baseline="central">bito CLI</text>
+<text x="236.16" y="411.572" text-anchor="middle" fill="rgb(76,115,152)" dominant-baseline="central">4,326 lines · 2 findings</text>
+<path d="M51.9635,562.627L103.804,562.627A8.64 8.64 0 0 0 112.444 553.987L112.444,510.787A8.64 8.64 0 0 0 103.804 502.147L51.9635,502.147A8.64 8.64 0 0 0 43.3235 510.787L43.3235,553.987A8.64 8.64 0 0 0 51.9635 562.627Z"  style="fill:rgb(220,239,216);stroke-width:2.16;stroke:rgb(95,128,96);" />
+<text x="262.664" y="532.387" text-anchor="middle" fill="rgb(41,56,69)" dominant-baseline="central">xtask · 209 lines · 0 findings</text>
+<path d="M810,329.04L1103.76,329.04A11.52 11.52 0 0 0 1115.28 317.52L1115.28,156.24A11.52 11.52 0 0 0 1103.76 144.72L810,144.72A11.52 11.52 0 0 0 798.48 156.24L798.48,317.52A11.52 11.52 0 0 0 810 329.04Z"  style="fill:rgb(248,246,241);stroke-width:4.86;stroke:rgb(139,109,63);" />
+<text x="956.88" y="216.72" text-anchor="middle" font-weight="bold" fill="rgb(139,109,63)" dominant-baseline="central">Repository contracts</text>
+<text x="956.88" y="236.88" text-anchor="middle" fill="rgb(139,109,63)" dominant-baseline="central">docs · config · lockfile</text>
+<text x="956.88" y="257.04" text-anchor="middle" fill="rgb(139,109,63)" dominant-baseline="central">4 findings</text>
+<polygon points="366.48,301.68 345.513,319.756 338.798,301.512" style="fill:rgb(76,115,152)"/>
+<path d="M236.16,349.652L354.318,306.157"  style="fill:none;stroke-width:4.86;stroke:rgb(76,115,152);" />
+<text x="301.32" y="313.957" text-anchor="middle" fill="rgb(76,115,152)" font-size="80%" dominant-baseline="central">analysis API</text>
+<path d="M798.48,236.88L755.28,236.88L755.28,401.492L429.84,401.492"  style="fill:none;stroke-width:2.16;stroke-linejoin:round;stroke:rgb(139,109,63);stroke-dasharray:7.2,7.2;" />
+<path d="M77.8835,588.547L147.004,588.547"  style="fill:none;stroke-width:7.29;stroke:rgb(176,74,54);" />
+<text x="251.098" y="588.547" text-anchor="middle" fill="rgb(97,113,125)" font-size="80%" dominant-baseline="central">stroke = finding density</text>
+<path d="M77.8835,621.667L147.004,621.667"  style="fill:none;stroke-width:2.16;stroke:rgb(97,113,125);" />
+<text x="260.821" y="621.667" text-anchor="middle" fill="rgb(97,113,125)" font-size="80%" dominant-baseline="central">bar width = source volume</text>
+</svg>
+

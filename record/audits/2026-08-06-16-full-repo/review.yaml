@@ -1,0 +1,38 @@
+---
+status: DONE
+reviewed_commit: 13e912785aa0f70da28e9a4d7b7fb880dfd4aca5
+summary:
+  confirmed: 12
+  adjusted: 2
+  disputed: 0
+findings:
+  - slug: analyze-thresholds-not-enforced
+    verdict: confirmed
+  - slug: default-analyze-suppressions-ignored
+    verdict: confirmed
+  - slug: full-analysis-errors-silently-discarded
+    verdict: confirmed
+  - slug: randomized-ties-break-determinism
+    verdict: confirmed
+  - slug: mcp-input-errors-reported-as-internal
+    verdict: confirmed
+  - slug: documented-config-loader-is-unreachable
+    verdict: confirmed
+  - slug: openai-backend-uses-wrong-tokenizer
+    verdict: confirmed
+  - slug: otel-endpoint-config-is-ignored
+    verdict: confirmed
+  - slug: sticky-sentence-utf8-truncation-panic
+    verdict: adjusted
+    notes: "Use char_indices or is_char_boundary; floor_char_boundary stabilized after the Rust 1.89 MSRV."
+  - slug: analysis-reallocates-word-vectors-per-sentence
+    verdict: adjusted
+    notes: "Preserve public analyzer entry points as wrappers around private pretokenized helpers."
+  - slug: matched-words-cloned-before-map-lookup
+    verdict: confirmed
+  - slug: analysis-thresholds-share-primitive-type
+    verdict: confirmed
+  - slug: unused-anyhow-in-bito-core
+    verdict: confirmed
+  - slug: deprecated-serde-yaml-dev-dependency
+    verdict: confirmed
