@@ -4,8 +4,9 @@
 //!
 //! Lower grade = more readable. Target: ≤ 8 for user docs, ≤ 12 for technical docs.
 //!
-//! Uses dictionary-backed syllable counting (via [`dictionaries::syllable_dict`])
-//! and proper sentence splitting (via [`text::split_sentences`]) for accuracy.
+//! Uses dictionary-backed syllable counting (via
+//! [`crate::dictionaries::syllable_dict`]) and proper sentence splitting (via
+//! [`text::split_sentences`]) for accuracy.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

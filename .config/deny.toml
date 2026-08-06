@@ -67,41 +67,17 @@ highlight = "all"
 # We don't ban any specific crates
 deny = []
 
-# Skip duplicate version checks for transitive dependencies we can't control
+# Skip duplicate version checks for transitive dependencies we can't control.
+#
+# Keep this list honest. cargo-deny warns about entries it did not need, so a
+# stale skip is not free — it is noise on every run, and it hides the day a
+# duplicate you do care about appears. Most of the original list existed for
+# candle and tokenizers, which left the tree when token counting moved to
+# ah-ah-ah, so seventeen entries went with them.
 skip = [
-    # Color support
     { crate = "supports-color", reason = "owo-colors pulls both v2 and v3" },
-
-    # Macro/derive crates with version splits across ecosystems
-    { crate = "darling", reason = "rmcp-macros vs tokenizers use different versions" },
-    { crate = "darling_core", reason = "follows darling" },
-    { crate = "darling_macro", reason = "follows darling" },
-
-    # Encoding/serialization
-    { crate = "base64", reason = "tokenizers (0.13) vs modern ecosystem (0.22)" },
-
-    # Collections with frequent major version bumps
-    { crate = "hashbrown", reason = "indexmap version differences" },
-    { crate = "indexmap", reason = "transitive dep version spread" },
-    { crate = "itertools", reason = "candle vs other deps" },
-
-    # Numeric/regex crates
-    { crate = "num-traits", reason = "candle uses older version" },
-    { crate = "regex-automata", reason = "tokenizers vs modern regex" },
-    { crate = "regex-syntax", reason = "follows regex-automata" },
-
-    # ICU/Unicode crates (candle vs icu4x ecosystem)
-    { crate = "yoke", reason = "candle vs icu4x" },
-    { crate = "yoke-derive", reason = "follows yoke" },
-    { crate = "zerocopy", reason = "candle vs modern zerocopy" },
-    { crate = "zerocopy-derive", reason = "follows zerocopy" },
-    { crate = "zerovec", reason = "candle vs icu4x" },
-    { crate = "zerovec-derive", reason = "follows zerovec" },
-
-    # Windows platform crates (version churn)
-    { crate = "windows-core", reason = "windows ecosystem version spread" },
+    { crate = "base64", reason = "rmcp vs modern ecosystem" },
     { crate = "windows-sys", reason = "windows ecosystem version spread" },
-    { crate = "windows-targets", reason = "windows ecosystem version spread" },
 ]
 
 # ==============================================================================
