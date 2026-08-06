@@ -17,6 +17,11 @@ fn cmd() -> Command {
     let prefix = env!("CARGO_PKG_NAME").to_uppercase().replace('-', "_");
     let test_log_dir = std::env::temp_dir().join(format!("{}-test-logs", env!("CARGO_PKG_NAME")));
     cmd.env(format!("{prefix}_LOG_DIR"), test_log_dir);
+    // Suppress the release check. `info` and `doctor` reach GitHub, and
+    // librebar's HTTP timeout is 30 seconds, so an offline runner with a cold
+    // cache stalls once per subprocess. No test needs a live check; the ones
+    // about update behavior set this themselves to say so at the call site.
+    cmd.env("BITO_NO_UPDATE_CHECK", "1");
     cmd
 }
 

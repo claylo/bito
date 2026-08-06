@@ -63,6 +63,12 @@ quietly override the file you explicitly asked for.
 Discovery works as before: `BITO_*` still overrides a project or user config
 found by walking up the tree. Only explicit selection moved up.
 
+`BITO_LOG_PATH` and `BITO_LOG_DIR` are the exception. They decide the log
+destination outright, over a `log_dir` in any config file including one named
+with `-c`. Where a process writes its logs is an operational question, and an
+operator needs to redirect them without editing the config a project ships.
+`bito doctor` reports the resolved path.
+
 ### Log files have stable names and tighter permissions
 
 The live log is `bito.jsonl`, mode 0600, so `tail -f bito.jsonl` follows it

@@ -311,14 +311,36 @@ BITO_TOKEN_BUDGET=4000
 Booleans accept only lowercase `true` and `false`. Arrays and objects use JSON
 syntax, quoted so the shell passes them intact.
 
-Four variables are not config fields and have no file equivalent:
+Three variables are not config fields and have no file equivalent:
 
 | Variable | Effect |
 |----------|--------|
-| `BITO_LOG_PATH` | Full path to the log file |
 | `BITO_ENV` | Environment tag (default: `dev`) |
 | `BITO_NO_UPDATE_CHECK` | Set to `1` to disable release update checks |
 | `RUST_LOG` | Log filter, e.g. `debug` or `bito=trace` |
+
+### Where logs get written
+
+`BITO_LOG_PATH` and `BITO_LOG_DIR` decide the log destination outright. They
+win over a `log_dir` in any config file, including one named with `-c`, which
+makes them the one exception to the precedence above.
+
+That is deliberate. Where a process writes its logs is an operational
+question — a container or a systemd unit needs to redirect them without
+editing the config a project ships. `log_dir` remains a config field for the
+ordinary case; the variables are the escape hatch.
+
+Resolution order for the log file, first writable wins:
+
+1. `BITO_LOG_PATH` — exact file path
+2. `BITO_LOG_DIR` — directory, file named `bito.jsonl`
+3. `log_dir` from config
+4. platform default (`~/Library/Logs/bito/` on macOS)
+5. `/var/log` on Unix
+6. stderr, if nothing above is writable
+
+`bito doctor` reports the resolved destination, so you never have to work this
+out by hand.
 
 ### All fields
 

@@ -36,6 +36,13 @@ struct DoctorReport {
     /// this document before update checks existed.
     #[serde(skip_serializing_if = "Option::is_none")]
     update: Option<String>,
+    /// `log_dir` from the loaded config, carried so the checks resolve the log
+    /// path the same way `gather` did.
+    ///
+    /// Not serialized: `doctor --json` is a consumed contract, and this is
+    /// input to a value the document already reports as `directories.log`.
+    #[serde(skip)]
+    config_log_dir: Option<camino::Utf8PathBuf>,
 }
 
 #[derive(Serialize)]
@@ -101,12 +108,13 @@ impl DoctorReport {
         Self {
             bundle: None,
             update: None,
+            config_log_dir: config.log_dir.clone(),
             directories: DirectoryPaths {
                 config: config::user_config_dir().map(|p| p.to_string()),
                 cache: config::user_cache_dir().map(|p| p.to_string()),
                 data: config::user_data_dir().map(|p| p.to_string()),
                 data_local: config::user_data_local_dir().map(|p| p.to_string()),
-                log: resolved_log_target().ok(),
+                log: resolved_log_target(config.log_dir.as_deref()).ok(),
             },
             config: ConfigStatus {
                 found: sources.primary_file().is_some(),
@@ -164,10 +172,11 @@ impl DoctorReport {
 /// Mirrors what `librebar::init` resolves at startup, so `doctor` reports the
 /// real destination rather than a guess. `Err` means nothing was writable and
 /// logging falls back to stderr.
-fn resolved_log_target() -> Result<String, String> {
+fn resolved_log_target(config_dir: Option<&camino::Utf8Path>) -> Result<String, String> {
     resolved_log_target_with(
         std::env::var_os("BITO_LOG_PATH").map(std::path::PathBuf::from),
         std::env::var_os("BITO_LOG_DIR").map(std::path::PathBuf::from),
+        config_dir.map(|dir| dir.as_std_path().to_path_buf()),
     )
 }
 
@@ -179,8 +188,9 @@ fn resolved_log_target() -> Result<String, String> {
 fn resolved_log_target_with(
     path_override: Option<std::path::PathBuf>,
     dir_override: Option<std::path::PathBuf>,
+    config_dir: Option<std::path::PathBuf>,
 ) -> Result<String, String> {
-    librebar::logging::resolve_log_target_with("bito", path_override, dir_override, None)
+    librebar::logging::resolve_log_target_with("bito", path_override, dir_override, config_dir)
         .map(|target| format!("{}/{}", target.dir.display(), target.file_name))
 }
 
@@ -211,7 +221,10 @@ impl DoctorCheck for TokenizerCheck {
 }
 
 /// Reports where logs will be written and whether the location is usable.
-struct LogDirCheck;
+struct LogDirCheck {
+    /// `log_dir` from the loaded config, which startup also hands to librebar.
+    config_dir: Option<camino::Utf8PathBuf>,
+}
 
 impl DoctorCheck for LogDirCheck {
     fn name(&self) -> &str {
@@ -223,7 +236,7 @@ impl DoctorCheck for LogDirCheck {
     }
 
     fn run(&self) -> CheckResult {
-        match resolved_log_target() {
+        match resolved_log_target(self.config_dir.as_deref()) {
             Ok(path) => CheckResult::new(CheckStatus::Ok, path),
             Err(message) => CheckResult::new(
                 CheckStatus::Warn,
@@ -459,7 +472,9 @@ fn build_runner(
     });
 
     runner.add(TokenizerCheck);
-    runner.add(LogDirCheck);
+    runner.add(LogDirCheck {
+        config_dir: report.config_log_dir.clone(),
+    });
     runner.add(UpdateCheck {
         notice: update_notice,
     });
@@ -606,7 +621,7 @@ mod tests {
     fn log_dir_check_reports_resolved_path() {
         let logdir = tempfile::tempdir().expect("tempdir");
 
-        let resolved = resolved_log_target_with(None, Some(logdir.path().to_path_buf()))
+        let resolved = resolved_log_target_with(None, Some(logdir.path().to_path_buf()), None)
             .expect("a writable temp dir should resolve");
 
         assert!(
@@ -622,7 +637,7 @@ mod tests {
     /// The check reports the resolution under whatever environment it runs in.
     #[test]
     fn log_dir_check_is_named_and_reports() {
-        let check = LogDirCheck;
+        let check = LogDirCheck { config_dir: None };
         assert_eq!(check.name(), "log dir");
         assert_eq!(check.category(), "runtime");
 
@@ -633,6 +648,33 @@ mod tests {
             matches!(result.status, CheckStatus::Ok | CheckStatus::Warn),
             "log dir check should never hard-fail, got {:?}",
             result.status
+        );
+    }
+
+    /// `doctor` reports the directory the config asked for.
+    ///
+    /// Startup hands `config.log_dir` to librebar, so a report that ignores it
+    /// names a path the process is not writing to — the one question this row
+    /// exists to answer.
+    #[test]
+    fn report_names_the_configured_log_dir() {
+        let logdir = tempfile::tempdir().expect("tempdir");
+        let config = Config {
+            log_dir: Some(
+                camino::Utf8PathBuf::try_from(logdir.path().to_path_buf()).expect("utf-8 tempdir"),
+            ),
+            ..Config::default()
+        };
+
+        let report = DoctorReport::gather(&config, &test_sources(), &test_cwd());
+        let log = report
+            .directories
+            .log
+            .expect("a writable dir should resolve");
+
+        assert!(
+            log.starts_with(logdir.path().to_str().expect("utf-8 tempdir")),
+            "configured log_dir should be reported, got: {log}"
         );
     }
 

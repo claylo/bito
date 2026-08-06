@@ -245,6 +245,11 @@ explicitly with `-c/--config` outranks them.
 - `BITO_NO_UPDATE_CHECK` — set to `1` to disable release update checks
 - `RUST_LOG` — log filter, e.g. `debug` or `bito=trace`
 
+The two log variables are the exception to the rule above: they decide where
+logs get written even when `-c` names a config file that sets `log_dir`. Where
+a process writes its logs is an operational question, so an operator can
+redirect them without editing anyone's config.
+
 Every config field also has a `BITO_`-prefixed form: `BITO_DIALECT`,
 `BITO_MAX_GRADE`, `BITO_TOKEN_BUDGET`, and so on. See
 [docs/README.md](docs/README.md#all-fields) for the full list.

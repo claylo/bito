@@ -14,6 +14,7 @@ fn no_log_files_written_to_cwd_when_home_unset() {
 
     Command::cargo_bin("bito")
         .expect("bito binary should build")
+        .env("BITO_NO_UPDATE_CHECK", "1")
         .arg("info")
         .current_dir(workdir.path())
         .env_remove("HOME")
@@ -53,6 +54,7 @@ fn live_log_file_has_stable_name() {
 
     Command::cargo_bin("bito")
         .expect("bito binary should build")
+        .env("BITO_NO_UPDATE_CHECK", "1")
         .args(["-v", "info"])
         .env("BITO_LOG_DIR", logdir.path())
         .env_remove("RUST_LOG")
@@ -93,6 +95,7 @@ fn log_file_is_private() {
 
     Command::cargo_bin("bito")
         .expect("bito binary should build")
+        .env("BITO_NO_UPDATE_CHECK", "1")
         .arg("info")
         .env("BITO_LOG_DIR", logdir.path())
         .assert()
@@ -132,6 +135,7 @@ fn stale_rotated_logs_are_pruned_by_default() {
 
     Command::cargo_bin("bito")
         .expect("bito binary should build")
+        .env("BITO_NO_UPDATE_CHECK", "1")
         .arg("info")
         .env("BITO_LOG_DIR", logdir.path())
         .assert()
@@ -160,6 +164,7 @@ fn log_retention_days_zero_keeps_rotated_logs() {
 
     Command::cargo_bin("bito")
         .expect("bito binary should build")
+        .env("BITO_NO_UPDATE_CHECK", "1")
         .arg("--config")
         .arg(&config)
         .arg("info")
@@ -170,5 +175,46 @@ fn log_retention_days_zero_keeps_rotated_logs() {
     assert!(
         stale.exists(),
         "log_retention_days = 0 should disable pruning entirely"
+    );
+}
+
+/// The log variables outrank an explicitly named config file.
+///
+/// Config fields follow `-c` > `BITO_*`, and `log_dir` is a config field, so
+/// this is the documented exception rather than an inconsistency. Where a
+/// process writes its logs is operational: a container or unit file has to be
+/// able to redirect them without editing the config a project ships.
+#[test]
+fn log_dir_env_var_outranks_an_explicit_config_file() {
+    let workdir = tempfile::tempdir().expect("tempdir");
+    let from_file = workdir.path().join("from-file");
+    let from_env = workdir.path().join("from-env");
+    std::fs::create_dir_all(&from_file).expect("create from-file");
+    std::fs::create_dir_all(&from_env).expect("create from-env");
+
+    let config = workdir.path().join("explicit.toml");
+    std::fs::write(
+        &config,
+        format!("log_dir = {:?}\n", from_file.to_str().expect("utf-8")),
+    )
+    .expect("write config");
+
+    Command::cargo_bin("bito")
+        .expect("bito binary should build")
+        .env("BITO_NO_UPDATE_CHECK", "1")
+        .env("BITO_LOG_DIR", &from_env)
+        .env_remove("BITO_LOG_PATH")
+        .args(["-c", config.to_str().expect("utf-8"), "info"])
+        .current_dir(workdir.path())
+        .assert()
+        .success();
+
+    assert!(
+        from_env.join("bito.jsonl").is_file(),
+        "BITO_LOG_DIR should decide the destination"
+    );
+    assert!(
+        !from_file.join("bito.jsonl").exists(),
+        "the config file's log_dir should not have been used"
     );
 }

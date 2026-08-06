@@ -18,6 +18,9 @@ fn cmd() -> Command {
     let prefix = env!("CARGO_PKG_NAME").to_uppercase().replace('-', "_");
     let test_log_dir = std::env::temp_dir().join(format!("{}-test-logs", env!("CARGO_PKG_NAME")));
     cmd.env(format!("{prefix}_LOG_DIR"), test_log_dir);
+    // See the note on cli.rs's helper: an unsuppressed release check costs up
+    // to 30 seconds per subprocess on an offline runner.
+    cmd.env("BITO_NO_UPDATE_CHECK", "1");
     cmd
 }
 
