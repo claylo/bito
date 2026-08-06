@@ -22,6 +22,7 @@ use rmcp::schemars;
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
 
 use bito_core::config::Dialect;
+use bito_core::error::AnalysisError;
 use bito_core::tokens::Backend;
 use bito_core::{self as core, analysis, completeness, grammar, readability, tokens};
 
@@ -113,6 +114,18 @@ fn parse_dialect(s: Option<&str>) -> Result<Option<Dialect>, McpError> {
             format!("invalid dialect \"{s}\": expected en-us, en-gb, en-ca, or en-au"),
             None,
         )),
+    }
+}
+
+fn analysis_error_to_mcp(e: AnalysisError) -> McpError {
+    match e {
+        AnalysisError::EmptyInput
+        | AnalysisError::UnknownCheck { .. }
+        | AnalysisError::InputTooLarge { .. }
+        | AnalysisError::UnknownTemplate { .. }
+        | AnalysisError::ConflictingConfig(_) => McpError::invalid_params(e.to_string(), None),
+        AnalysisError::TokenizerInit(_) => McpError::internal_error(e.to_string(), None),
+        _ => McpError::internal_error(e.to_string(), None),
     }
 }
 
@@ -219,7 +232,7 @@ impl ProjectServer {
 
     /// Count tokens in text using the specified backend (default: claude).
     #[tool(
-        description = "Count tokens in text. Returns token count and optional budget check. Supports 'claude' (default, conservative) and 'openai' (exact cl100k_base) backends."
+        description = "Count tokens in text. Returns token count and optional budget check. Supports 'claude' (default, conservative) and 'openai' (exact o200k_base) backends."
     )]
     #[tracing::instrument(skip(self, params), fields(otel.kind = "server"))]
     fn count_tokens(
@@ -231,7 +244,7 @@ impl ProjectServer {
         self.validate_input(&params.text)?;
 
         let report = tokens::count_tokens(&params.text, params.budget, backend)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(analysis_error_to_mcp)?;
 
         let json = serde_json::to_string_pretty(&report)
             .map_err(|e| McpError::internal_error(format!("serialization error: {e}"), None))?;
@@ -262,7 +275,7 @@ impl ProjectServer {
 
         let report =
             readability::check_readability(&params.text, params.strip_markdown, params.max_grade)
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                .map_err(analysis_error_to_mcp)?;
 
         let json = serde_json::to_string_pretty(&report)
             .map_err(|e| McpError::internal_error(format!("serialization error: {e}"), None))?;
@@ -288,7 +301,7 @@ impl ProjectServer {
         self.validate_input(&params.text)?;
 
         let report = completeness::check_completeness(&params.text, &params.template, None)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .map_err(analysis_error_to_mcp)?;
 
         let json = serde_json::to_string_pretty(&report)
             .map_err(|e| McpError::internal_error(format!("serialization error: {e}"), None))?;
@@ -318,17 +331,15 @@ impl ProjectServer {
         );
         self.validate_input(&params.text)?;
 
-        let dialect = parse_dialect(params.dialect.as_deref())?;
+        let opts = analysis::AnalysisOptions {
+            strip_md: params.strip_markdown,
+            max_grade: params.max_grade,
+            passive_max: params.passive_max,
+            dialect: parse_dialect(params.dialect.as_deref())?,
+        };
         let checks_ref = params.checks.as_deref();
-        let report = analysis::run_full_analysis(
-            &params.text,
-            params.strip_markdown,
-            checks_ref,
-            params.max_grade,
-            params.passive_max,
-            dialect,
-        )
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let report = analysis::run_full_analysis(&params.text, checks_ref, &opts)
+            .map_err(analysis_error_to_mcp)?;
 
         let json = serde_json::to_string_pretty(&report)
             .map_err(|e| McpError::internal_error(format!("serialization error: {e}"), None))?;
@@ -355,7 +366,7 @@ impl ProjectServer {
 
         let report =
             grammar::check_grammar_full(&params.text, params.strip_markdown, params.passive_max)
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                .map_err(analysis_error_to_mcp)?;
 
         let json = serde_json::to_string_pretty(&report)
             .map_err(|e| McpError::internal_error(format!("serialization error: {e}"), None))?;
@@ -398,7 +409,7 @@ impl ProjectServer {
 
         let report =
             bito_core::lint::run_lint(&params.file_path, &params.text, &resolved, &self.config)
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                .map_err(analysis_error_to_mcp)?;
 
         let json = serde_json::to_string_pretty(&report)
             .map_err(|e| McpError::internal_error(format!("serialization error: {e}"), None))?;

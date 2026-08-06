@@ -35,6 +35,22 @@ use crate::markdown;
 use crate::readability;
 use crate::text;
 
+/// Configuration options for full writing analysis.
+///
+/// Bundles threshold and dialect settings into a single struct so that
+/// adjacent `Option<f64>` parameters cannot be accidentally swapped.
+#[derive(Debug, Default, Clone)]
+pub struct AnalysisOptions {
+    /// Strip markdown formatting before analysis.
+    pub strip_md: bool,
+    /// Maximum readability grade level.
+    pub max_grade: Option<f64>,
+    /// Maximum passive voice percentage.
+    pub passive_max: Option<f64>,
+    /// Dialect for spelling enforcement.
+    pub dialect: Option<Dialect>,
+}
+
 /// All available check names.
 pub const ALL_CHECKS: &[&str] = &[
     "readability",
@@ -58,25 +74,13 @@ pub const ALL_CHECKS: &[&str] = &[
 ];
 
 /// Run full writing analysis.
-///
-/// # Arguments
-///
-/// * `input` — The text to analyze.
-/// * `strip_md` — If `true`, strip markdown formatting before analysis.
-/// * `checks` — Optional list of check names to run. If `None`, runs all.
-/// * `max_grade` — Optional max readability grade.
-/// * `passive_max` — Optional max passive voice percentage.
-/// * `dialect` — Optional dialect for spelling enforcement.
-#[tracing::instrument(skip(input), fields(text_len = input.len(), strip_md))]
+#[tracing::instrument(skip(input), fields(text_len = input.len(), strip_md = opts.strip_md))]
 pub fn run_full_analysis(
     input: &str,
-    strip_md: bool,
     checks: Option<&[String]>,
-    max_grade: Option<f64>,
-    passive_max: Option<f64>,
-    dialect: Option<Dialect>,
+    opts: &AnalysisOptions,
 ) -> AnalysisResult<FullAnalysisReport> {
-    let prose = if strip_md {
+    let prose = if opts.strip_md {
         markdown::strip_to_prose(input)
     } else {
         input.to_string()
@@ -113,14 +117,22 @@ pub fn run_full_analysis(
 
     // Readability
     let readability_report = if enabled.contains("readability") {
-        readability::check_readability(&prose, false, max_grade).ok()
+        Some(readability::check_readability(
+            &prose,
+            false,
+            opts.max_grade,
+        )?)
     } else {
         None
     };
 
     // Grammar
     let grammar_report = if enabled.contains("grammar") {
-        grammar::check_grammar_full(&prose, false, passive_max).ok()
+        Some(grammar::check_grammar_full(
+            &prose,
+            false,
+            opts.passive_max,
+        )?)
     } else {
         None
     };
@@ -199,7 +211,7 @@ pub fn run_full_analysis(
 
     // Consistency
     let consistency_report = if enabled.contains("consistency") {
-        Some(consistency::analyze_consistency(&prose, dialect))
+        Some(consistency::analyze_consistency(&prose, opts.dialect))
     } else {
         None
     };
@@ -284,7 +296,7 @@ mod tests {
     #[test]
     fn full_analysis_runs() {
         let text = "The cat sat on the mat. The dog ran fast. However, the bird flew away.";
-        let report = run_full_analysis(text, false, None, None, None, None).unwrap();
+        let report = run_full_analysis(text, None, &AnalysisOptions::default()).unwrap();
         assert!(report.readability.is_some());
         assert!(report.grammar.is_some());
         assert!(report.sticky_sentences.is_some());
@@ -296,7 +308,7 @@ mod tests {
     fn selective_checks() {
         let text = "The cat sat on the mat. The dog ran fast.";
         let checks = vec!["readability".to_string(), "pacing".to_string()];
-        let report = run_full_analysis(text, false, Some(&checks), None, None, None).unwrap();
+        let report = run_full_analysis(text, Some(&checks), &AnalysisOptions::default()).unwrap();
         assert!(report.readability.is_some());
         assert!(report.pacing.is_some());
         assert!(report.grammar.is_none());
@@ -305,14 +317,18 @@ mod tests {
 
     #[test]
     fn empty_input_errors() {
-        let result = run_full_analysis("", false, None, None, None, None);
+        let result = run_full_analysis("", None, &AnalysisOptions::default());
         assert!(result.is_err());
     }
 
     #[test]
     fn markdown_stripping_works() {
         let md = "# Title\n\nThe cat sat on the mat.\n\n```rust\nlet x = 1;\n```";
-        let report = run_full_analysis(md, true, None, None, None, None).unwrap();
+        let opts = AnalysisOptions {
+            strip_md: true,
+            ..Default::default()
+        };
+        let report = run_full_analysis(md, None, &opts).unwrap();
         assert!(report.readability.is_some());
     }
 
@@ -320,7 +336,7 @@ mod tests {
     fn unknown_check_returns_error() {
         let text = "The cat sat on the mat.";
         let checks = vec!["readablity".to_string()];
-        let result = run_full_analysis(text, false, Some(&checks), None, None, None);
+        let result = run_full_analysis(text, Some(&checks), &AnalysisOptions::default());
         let err = result.unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("readablity"), "should name the unknown check");
@@ -336,7 +352,7 @@ mod tests {
             "pacing".to_string(),
             "nope".to_string(),
         ];
-        let result = run_full_analysis(text, false, Some(&checks), None, None, None);
+        let result = run_full_analysis(text, Some(&checks), &AnalysisOptions::default());
         let err = result.unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("bogus"), "should name bogus");
@@ -353,22 +369,18 @@ mod tests {
     fn valid_checks_accepted() {
         let text = "The cat sat on the mat. The dog ran fast.";
         let checks: Vec<String> = ALL_CHECKS.iter().map(|s| (*s).to_string()).collect();
-        let result = run_full_analysis(text, false, Some(&checks), None, None, None);
+        let result = run_full_analysis(text, Some(&checks), &AnalysisOptions::default());
         assert!(result.is_ok(), "all valid check names should be accepted");
     }
 
     #[test]
     fn full_analysis_with_dialect() {
         let text = "The colour of the centre was organised well.";
-        let report = run_full_analysis(
-            text,
-            false,
-            Some(&["consistency".to_string()]),
-            None,
-            None,
-            Some(Dialect::EnUs),
-        )
-        .unwrap();
+        let opts = AnalysisOptions {
+            dialect: Some(Dialect::EnUs),
+            ..Default::default()
+        };
+        let report = run_full_analysis(text, Some(&["consistency".to_string()]), &opts).unwrap();
         let c = report.consistency.expect("consistency report should exist");
         assert_eq!(c.dialect.as_deref(), Some("en-us"));
         assert!(c.total_issues > 0, "should flag UK spellings for en-us");

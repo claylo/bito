@@ -61,28 +61,23 @@ pub fn cmd_analyze(
 
     let content = read_input_file(&args.file, max_input_bytes)?;
 
-    let strip_md = args.file.extension() == Some("md");
     let style_min = args.style_min.or(config_style_min);
-    let max_grade = args.max_grade.or(config_max_grade);
-    let passive_max = args.passive_max.or(config_passive_max);
-    let dialect = args.dialect.or(config_dialect);
+    let opts = analysis::AnalysisOptions {
+        strip_md: args.file.extension() == Some("md"),
+        max_grade: args.max_grade.or(config_max_grade),
+        passive_max: args.passive_max.or(config_passive_max),
+        dialect: args.dialect.or(config_dialect),
+    };
 
     // Resolve --checks / --exclude into the final check list.
     let resolved_checks = resolve_checks(args.checks, args.exclude)?;
     let checks_ref = resolved_checks.as_deref();
-    let report = analysis::run_full_analysis(
-        &content,
-        strip_md,
-        checks_ref,
-        max_grade,
-        passive_max,
-        dialect,
-    )
-    .with_context(|| format!("failed to analyze {}", args.file))?;
+    let report = analysis::run_full_analysis(&content, checks_ref, &opts)
+        .with_context(|| format!("failed to analyze {}", args.file))?;
 
     if global_json {
         println!("{}", serde_json::to_string_pretty(&report)?);
-        return style_gate(&args.file, style_min, &report);
+        return check_thresholds(&args.file, style_min, &report);
     }
 
     // Text output — section by section
@@ -214,29 +209,51 @@ pub fn cmd_analyze(
         );
     }
 
-    style_gate(&args.file, style_min, &report)
+    check_thresholds(&args.file, style_min, &report)
 }
 
-/// Apply the minimum style-score threshold.
-///
-/// Both output paths call this. The JSON branch used to return early and skip
-/// it entirely, so `--json` reported a failing score and still exited 0.
-fn style_gate(
+/// Check all configured quality thresholds and fail if any are breached.
+fn check_thresholds(
     file: &Utf8PathBuf,
     style_min: Option<i32>,
     report: &analysis::FullAnalysisReport,
 ) -> anyhow::Result<()> {
+    let mut failures: Vec<String> = Vec::new();
+
     if let (Some(min), Some(st)) = (style_min, &report.style)
         && st.style_score < min
     {
-        return Err(IssuesFound(format!(
-            "{file} style score {} is below minimum {min} — improve writing quality.",
+        failures.push(format!(
+            "style score {} is below minimum {min}",
             st.style_score,
-        ))
-        .into());
+        ));
     }
 
-    Ok(())
+    if let Some(r) = &report.readability
+        && r.over_max
+    {
+        failures.push(format!(
+            "readability grade {:.1} exceeds maximum {:.1}",
+            r.grade,
+            r.max_grade.unwrap_or(0.0),
+        ));
+    }
+
+    if let Some(g) = &report.grammar
+        && g.over_max
+    {
+        failures.push(format!(
+            "passive voice {:.1}% exceeds maximum {:.1}%",
+            g.passive_percentage,
+            g.passive_max.unwrap_or(0.0),
+        ));
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(IssuesFound(format!("{file}: {}", failures.join("; "))).into())
+    }
 }
 
 /// Resolve `--checks` and `--exclude` into a final check list.

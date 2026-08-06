@@ -134,10 +134,10 @@ A count that's 1% low lets over-budget content through.
 
 ## OpenAI Backend
 
-The `openai` backend uses `bpe-openai` for exact cl100k_base BPE encoding.
+The `openai` backend uses `bpe-openai` for exact o200k_base BPE encoding.
 No estimation, no greedy heuristics — this is the real tokenizer.
 
-Use it when you need exact GPT-4 / cl100k_base counts.
+Use it when you need exact GPT-4o / o200k_base counts.
 
 ## Choosing a Backend
 
@@ -145,7 +145,7 @@ Use it when you need exact GPT-4 / cl100k_base counts.
 |----------|---------|-----|
 | Claude budget enforcement | `claude` (default) | Conservative overcount, no API calls |
 | Exact Claude counts | Use the `count_tokens` API directly | Greedy is an estimator, not exact |
-| OpenAI / GPT-4 budget enforcement | `openai` | Exact cl100k_base BPE |
+| OpenAI / GPT-4o budget enforcement | `openai` | Exact o200k_base BPE |
 
 Configure via CLI (`--tokenizer claude|openai`),
 config file (`tokenizer = "openai"`),

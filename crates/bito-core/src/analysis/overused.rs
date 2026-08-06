@@ -1,6 +1,5 @@
 //! Overused word detection.
 
-use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
 use crate::word_lists::GLUE_WORDS;
@@ -38,7 +37,7 @@ pub fn analyze_overused_words(words: &[String]) -> OverusedWordsReport {
         })
         .collect();
 
-    overused.sort_by_key(|x| Reverse(x.count));
+    overused.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.word.cmp(&b.word)));
 
     OverusedWordsReport {
         overused_words: overused,

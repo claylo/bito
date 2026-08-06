@@ -60,30 +60,25 @@ pub fn run_lint(
 
     // --- analyze ---
     let analyze_report = if let Some(ref ac) = resolved.analyze {
-        // Filter out fully-suppressed sub-checks from the analyze check list.
-        let mut check_list = resolve_analyze_checks(ac)?;
-        if !suppressions.is_empty()
-            && let Some(ref mut checks) = check_list
-        {
-            checks.retain(|c| !suppressions.is_fully_suppressed(c));
+        // Materialize ALL_CHECKS when None so suppression filtering always runs.
+        let mut check_list = resolve_analyze_checks(ac)?
+            .unwrap_or_else(|| ALL_CHECKS.iter().map(|s| (*s).to_string()).collect());
+        if !suppressions.is_empty() {
+            check_list.retain(|c| !suppressions.is_fully_suppressed(c));
         }
         // If all requested checks were suppressed, skip analyze entirely.
-        if check_list.as_ref().is_some_and(|c| c.is_empty()) {
+        if check_list.is_empty() {
             None
         } else {
-            let max_grade = ac.max_grade.or(config.max_grade);
-            let passive_max = ac.passive_max.or(config.passive_max_percent);
-            let dialect = ac.dialect.or(config.dialect);
-            let checks_ref = check_list.as_deref();
-
-            let mut report = analysis::run_full_analysis(
-                content,
+            let checks_ref = Some(check_list.as_slice());
+            let opts = analysis::AnalysisOptions {
                 strip_md,
-                checks_ref,
-                max_grade,
-                passive_max,
-                dialect,
-            )?;
+                max_grade: ac.max_grade.or(config.max_grade),
+                passive_max: ac.passive_max.or(config.passive_max_percent),
+                dialect: ac.dialect.or(config.dialect),
+            };
+
+            let mut report = analysis::run_full_analysis(content, checks_ref, &opts)?;
             // Region-level suppression filtering for analysis sub-reports
             if !suppressions.is_empty() {
                 filter_analysis_report(&mut report, content, &suppressions);
@@ -92,6 +87,12 @@ pub fn run_lint(
             if let (Some(min), Some(st)) = (style_min, &report.style)
                 && st.style_score < min
             {
+                pass = false;
+            }
+            if report.readability.as_ref().is_some_and(|r| r.over_max) {
+                pass = false;
+            }
+            if report.grammar.as_ref().is_some_and(|g| g.over_max) {
                 pass = false;
             }
             Some(report)

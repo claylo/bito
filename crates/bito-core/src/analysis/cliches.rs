@@ -1,7 +1,5 @@
 //! Cliché detection.
 
-use std::cmp::Reverse;
-
 use crate::word_lists::CLICHES;
 
 use super::reports::{ClicheFound, ClichesReport};
@@ -22,7 +20,7 @@ pub fn analyze_cliches(text: &str) -> ClichesReport {
         }
     }
 
-    found.sort_by_key(|x| Reverse(x.count));
+    found.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.cliche.cmp(&b.cliche)));
     let total = found.iter().map(|c| c.count).sum();
 
     ClichesReport {

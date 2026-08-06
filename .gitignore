@@ -68,3 +68,4 @@ scratch/
 .private-journal/
 PRIVATE_MEMORY.md
 .claude/
+.crustoleum/

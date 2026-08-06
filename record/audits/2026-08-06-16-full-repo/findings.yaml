@@ -1,0 +1,875 @@
+---
+audit_date: 2026-08-06
+scope: "Full repository — source, dependencies, configuration, documentation, and CI"
+commit: 13e912785aa0f70da28e9a4d7b7fb880dfd4aca5
+assessment: |
+  Bito has a disciplined Rust baseline: Clippy and RustSec are clean, cargo-deny
+  passes, the workspace contains no unsafe application code, and the async surface
+  has no demonstrated concurrency hazard. The material risk is contract drift at
+  the user boundary. Several advertised quality gates do not gate, documented APIs
+  and backends do not match their implementation, and randomized tie ordering breaks
+  the same-input/same-result promise. One user-controlled UTF-8 path can panic, while
+  error erasure and repeated tokenization weaken reliability and efficiency. The
+  foundation is sound, but the public contract needs to be brought back into line
+  with the code before the tool can be called fully deterministic.
+
+narratives:
+  - slug: output-contract
+    title: "The Output Contract Surface"
+    thesis: "Bito computes rich reports, but suppression, gating, ordering, and protocol translation can turn the same input into a misleading success or an unstable result."
+    verdict: "The analysis pipeline has the information it needs, yet loses intent at its boundaries: enabled-check failures become absence, configured thresholds do not consistently affect exit status, and tied results inherit randomized map order. Centralizing report verdicts and protocol error mapping would close most of this surface without changing the analysis algorithms."
+    flow:
+      - id: receive-document
+        label: "Receive document"
+        type: start
+      - id: resolve-checks
+        label: "Resolve checks"
+        type: process
+        findings:
+          - slug: default-analyze-suppressions-ignored
+            label: "Suppression lost"
+      - id: run-analysis
+        label: "Run analyses"
+        type: process
+        findings:
+          - slug: full-analysis-errors-silently-discarded
+            label: "Errors erased"
+      - id: apply-gates
+        label: "Apply thresholds"
+        type: process
+        findings:
+          - slug: analyze-thresholds-not-enforced
+            label: "Gates skipped"
+      - id: order-results
+        label: "Order report"
+        type: process
+        findings:
+          - slug: randomized-ties-break-determinism
+            label: "Random ties"
+      - id: choose-transport
+        label: "CLI or MCP?"
+        type: decision
+        no: map-mcp-error
+      - id: emit-cli
+        label: "Emit CLI result"
+        type: end
+      - id: map-mcp-error
+        label: "Map MCP error"
+        type: process
+        spine: false
+        findings:
+          - slug: mcp-input-errors-reported-as-internal
+            label: "Wrong error class"
+    findings:
+      - slug: analyze-thresholds-not-enforced
+        title: "Analyze ignores readability and passive-voice failures"
+        criterion: "FC-1"
+        surface: "Completeness"
+        concern: significant
+        locations:
+          - path: crates/bito/src/commands/analyze.rs
+            start_line: 217
+            end_line: 239
+          - path: crates/bito-core/src/lint.rs
+            start_line: 91
+            end_line: 97
+          - path: docs/UPGRADING.md
+            start_line: 47
+            end_line: 55
+          - path: docs/README.md
+            start_line: 41
+            end_line: 46
+        evidence: |2
+              style_gate(&args.file, style_min, &report)
+          }
+
+          /// Apply the minimum style-score threshold.
+          ///
+          /// Both output paths call this. The JSON branch used to return early and skip
+          /// it entirely, so `--json` reported a failing score and still exited 0.
+          fn style_gate(
+              file: &Utf8PathBuf,
+              style_min: Option<i32>,
+              report: &analysis::FullAnalysisReport,
+          ) -> anyhow::Result<()> {
+              if let (Some(min), Some(st)) = (style_min, &report.style)
+                  && st.style_score < min
+              {
+                  return Err(IssuesFound(format!(
+                      "{file} style score {} is below minimum {min} — improve writing quality.",
+                      st.style_score,
+                  ))
+                  .into());
+              }
+
+              Ok(())
+          }
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "1"
+            type: del
+            label: "Only the style gate is invoked"
+          - lines: "13-20"
+            type: del
+            label: "Only style can produce a failing result"
+        mechanism: |
+          The analysis core records `readability.over_max` and `grammar.over_max`,
+          but the CLI's sole post-analysis gate inspects only the style score.
+          Config-driven `analyze` rules repeat the omission by changing `pass` only
+          for `style_min`. Consequently `--max-grade`, `--passive-max`, and their
+          configured equivalents can report exceeded thresholds while both
+          `bito analyze` and `bito lint` exit successfully, contradicting the
+          upgrading guide's explicit threshold contract.
+        remediation: |
+          Replace `style_gate` with a unified analysis verdict that checks enabled
+          readability, grammar, and style thresholds, and apply the same helper when
+          computing `LintReport::pass`. Add focused regression tests for each
+          threshold in text, JSON, ad-hoc, and rule-driven paths.
+        temporal:
+          introduced: 2026-02-07
+          last_modified: 2026-08-06
+          commit_count: 6
+          monthly_commits: [0, 0, 0, 0, 0, 3, 2, 0, 0, 0, 0, 1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [default-analyze-suppressions-ignored]
+        effort: small
+        effort_notes: "A shared verdict helper plus focused CLI and lint regressions should localize the change."
+
+      - slug: default-analyze-suppressions-ignored
+        title: "Default analyze rules ignore file-level suppressions"
+        criterion: "FC-1"
+        surface: "Completeness"
+        concern: moderate
+        locations:
+          - path: crates/bito-core/src/lint.rs
+            start_line: 61
+            end_line: 72
+          - path: docs/README.md
+            start_line: 221
+            end_line: 223
+          - path: docs/README.md
+            start_line: 254
+            end_line: 260
+        evidence: |2
+              // --- analyze ---
+              let analyze_report = if let Some(ref ac) = resolved.analyze {
+                  // Filter out fully-suppressed sub-checks from the analyze check list.
+                  let mut check_list = resolve_analyze_checks(ac)?;
+                  if !suppressions.is_empty()
+                      && let Some(ref mut checks) = check_list
+                  {
+                      checks.retain(|c| !suppressions.is_fully_suppressed(c));
+                  }
+                  // If all requested checks were suppressed, skip analyze entirely.
+                  if check_list.as_ref().is_some_and(|c| c.is_empty()) {
+                      None
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "4-8"
+            type: del
+            label: "Suppression pruning runs only when the check list is Some"
+        mechanism: |
+          `resolve_analyze_checks` represents an analyze rule with neither `checks`
+          nor `exclude` as `None`, meaning all 18 checks. Suppression pruning is
+          conditional on that value being `Some`, so the documented unclosed
+          `disable style` directive cannot remove `style` from the common default-all
+          configuration. Aggregate checks can therefore still appear and still fail
+          configured gates despite a documented file-level opt-out.
+        remediation: |
+          Materialize `ALL_CHECKS` before applying full-check suppressions, then
+          collapse an empty result to a skipped analysis. Add a regression using a
+          default `AnalyzeRuleConfig` and an unclosed aggregate-check directive.
+        temporal:
+          introduced: 2026-03-01
+          last_modified: 2026-03-24
+          commit_count: 3
+          monthly_commits: [0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [analyze-thresholds-not-enforced]
+        effort: small
+        effort_notes: "The correction is confined to check-list resolution and a regression test."
+
+      - slug: full-analysis-errors-silently-discarded
+        title: "Full analysis silently converts enabled-check failures into absent reports"
+        criterion: "5.3"
+        surface: "Error Handling"
+        concern: moderate
+        locations:
+          - path: crates/bito-core/src/analysis/mod.rs
+            start_line: 114
+            end_line: 124
+          - path: crates/bito-core/src/readability.rs
+            start_line: 61
+            end_line: 63
+          - path: crates/bito-core/src/grammar/mod.rs
+            start_line: 69
+            end_line: 72
+          - path: crates/bito/src/commands/analyze.rs
+            start_line: 73
+            end_line: 85
+        evidence: |2
+              // Readability
+              let readability_report = if enabled.contains("readability") {
+                  readability::check_readability(&prose, false, max_grade).ok()
+              } else {
+                  None
+              };
+
+              // Grammar
+              let grammar_report = if enabled.contains("grammar") {
+                  grammar::check_grammar_full(&prose, false, passive_max).ok()
+              } else {
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "3"
+            type: del
+            label: "Readability error discarded"
+          - lines: "10"
+            type: del
+            label: "Grammar error discarded"
+        mechanism: |
+          Both enabled checks return `AnalysisError::EmptyInput` when text contains
+          no scorable words or sentences, but `.ok()` erases those errors and makes
+          failure indistinguishable from a disabled check. Non-whitespace input such
+          as punctuation-only content passes the initial trim check, then returns an
+          otherwise successful full report with readability and grammar omitted; the
+          CLI and MCP caller consequently report success instead of rejecting
+          unscorable input.
+        remediation: |
+          Preserve enabled-check failures with `Some(check_readability(...)?)` and
+          `Some(check_grammar_full(...)?)`. If partial reports are intentional,
+          represent check failure separately from disabled state and include the typed
+          error in the public report rather than converting it to `None`.
+        temporal:
+          introduced: 2026-02-07
+          last_modified: 2026-03-24
+          commit_count: 4
+          monthly_commits: [0, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [mcp-input-errors-reported-as-internal]
+        effort: small
+        effort_notes: "Propagation is local, with tests needed for punctuation-only and otherwise unscorable input."
+
+      - slug: randomized-ties-break-determinism
+        title: "Randomized map order leaks into supposedly deterministic reports"
+        criterion: "FC-1"
+        surface: "Completeness"
+        concern: significant
+        locations:
+          - path: crates/bito-core/src/analysis/acronyms.rs
+            start_line: 17
+            end_line: 31
+          - path: README.md
+            start_line: 59
+            end_line: 59
+          - path: crates/bito-core/src/analysis/overused.rs
+            start_line: 29
+            end_line: 41
+          - path: crates/bito-core/src/analysis/repeated.rs
+            start_line: 32
+            end_line: 39
+        evidence: |2
+          pub fn analyze_acronyms(text: &str) -> AcronymReport {
+              let mut counts: HashMap<String, usize> = HashMap::new();
+
+              for m in ACRONYM_RE.find_iter(text) {
+                  *counts.entry(m.as_str().to_string()).or_insert(0) += 1;
+              }
+
+              let total_acronyms: usize = counts.values().sum();
+              let unique_acronyms = counts.len();
+
+              let mut acronym_list: Vec<AcronymCount> = counts
+                  .into_iter()
+                  .map(|(acronym, count)| AcronymCount { acronym, count })
+                  .collect();
+              acronym_list.sort_by_key(|x| Reverse(x.count));
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2"
+            type: del
+            label: "HashMap iteration is randomly seeded per process"
+          - lines: "11-15"
+            type: del
+            label: "Count-only sorting leaves equal-count entries in randomized order"
+        mechanism: |
+          Several analyses collect report arrays from randomized `HashMap` iteration
+          and sort only by frequency. Equal-frequency entries retain the map's
+          process-specific order, so identical input can produce different acronym,
+          overused-word, repeated-phrase, diction, jargon, transition, and style-detail
+          ordering across invocations. This violates the product's explicit
+          same-input/same-result guarantee and creates unstable JSON and text output.
+        remediation: |
+          Give every externally visible collection a total deterministic order, using
+          frequency descending followed by the term or phrase ascending. Cover every
+          `HashMap`-derived report and add repeated-process fixture tests for tied
+          counts.
+        temporal:
+          introduced: 2026-02-07
+          last_modified: 2026-08-06
+          commit_count: 3
+          monthly_commits: [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: medium
+        effort_notes: "Each fix is small, but all report-producing map conversions need a systematic sweep."
+
+      - slug: mcp-input-errors-reported-as-internal
+        title: "MCP tools report caller input errors as server-internal failures"
+        criterion: "5.4"
+        surface: "Error Handling"
+        concern: moderate
+        locations:
+          - path: crates/bito/src/server.rs
+            start_line: 319
+            end_line: 331
+          - path: crates/bito-core/src/error.rs
+            start_line: 51
+            end_line: 70
+        evidence: |2
+                  self.validate_input(&params.text)?;
+
+                  let dialect = parse_dialect(params.dialect.as_deref())?;
+                  let checks_ref = params.checks.as_deref();
+                  let report = analysis::run_full_analysis(
+                      &params.text,
+                      params.strip_markdown,
+                      checks_ref,
+                      params.max_grade,
+                      params.passive_max,
+                      dialect,
+                  )
+                  .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "13"
+            type: del
+            label: "All typed analysis errors become JSON-RPC internal errors"
+        mechanism: |
+          `run_full_analysis` exposes concrete variants for empty input and unknown
+          check names, both caused entirely by request parameters. The MCP boundary
+          collapses every variant to `internal_error` (-32603), while size and dialect
+          validation correctly use `invalid_params` (-32602). Clients therefore
+          receive a server-failure contract for requests they must correct, undermining
+          retry and diagnostic behavior. The same blanket conversion appears in the
+          readability, completeness, grammar, and lint tools.
+        remediation: |
+          Add one conversion helper that matches caller-correctable `AnalysisError`
+          variants to `McpError::invalid_params` and reserves `internal_error` for
+          faults outside the request contract. Use that helper consistently across all
+          MCP analysis tools.
+        temporal:
+          introduced: 2026-02-07
+          last_modified: 2026-08-06
+          commit_count: 9
+          monthly_commits: [0, 0, 0, 0, 0, 5, 3, 0, 0, 0, 0, 1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [full-analysis-errors-silently-discarded]
+        effort: small
+        effort_notes: "A centralized variant-to-protocol mapping replaces repeated blanket map_err calls."
+
+  - slug: documented-capabilities
+    title: "The Documented Capability Surface"
+    thesis: "Three shipped interfaces advertise concrete behavior that the current implementation either removed, renamed, or never wired."
+    verdict: "These are contract failures rather than missing niceties. The configuration example does not compile, the OpenAI backend counts with a different vocabulary than documented, and an accepted configuration key is a silent no-op. Code compatibility or explicit migration documentation is required; silently accepting drift is the wrong posture for a quality-gate tool."
+    findings:
+      - slug: documented-config-loader-is-unreachable
+        title: "The documented ConfigLoader API no longer exists"
+        criterion: "FC-1"
+        surface: "Completeness"
+        concern: significant
+        locations:
+          - path: README.md
+            start_line: 349
+            end_line: 358
+          - path: crates/bito-core/src/config.rs
+            start_line: 302
+            end_line: 329
+        evidence: |2
+          The `ConfigLoader` provides flexible configuration discovery:
+
+          ```rust
+          use bito_core::config::ConfigLoader;
+
+          let config = ConfigLoader::new()
+              .with_project_search(std::env::current_dir()?)
+              .with_user_config(true)
+              .load()?;
+          ```
+        evidence_lang: markdown
+        evidence_markers:
+          - lines: "4-9"
+            type: del
+            label: "This import and builder chain do not compile"
+        mechanism: |
+          The librebar migration removed the public
+          `bito_core::config::ConfigLoader` type and replaced it with the fixed
+          `bito_core::config::load(cwd, explicit)` function. The README still presents
+          the removed builder as the library configuration API, so a developer
+          following the authoritative example fails at import resolution before any
+          configuration can be loaded.
+        remediation: |
+          Restore a compatibility `ConfigLoader` facade with the documented
+          zero-argument constructor and builder operations, delegating internally to
+          librebar. Preserve `load` as the simple entry point and document a
+          deprecation path if the facade is transitional.
+        temporal:
+          introduced: 2026-08-06
+          last_modified: 2026-08-06
+          commit_count: 8
+          monthly_commits: [0, 0, 0, 0, 0, 3, 3, 1, 0, 0, 0, 1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: medium
+        effort_notes: "The documented builder contract needs a compatibility wrapper and compile-tested documentation."
+
+      - slug: openai-backend-uses-wrong-tokenizer
+        title: "The OpenAI backend implements o200k_base instead of documented cl100k_base"
+        criterion: "FC-1"
+        surface: "Completeness"
+        concern: significant
+        locations:
+          - path: docs/tokens.md
+            start_line: 135
+            end_line: 140
+          - path: crates/bito-core/src/tokens.rs
+            start_line: 5
+            end_line: 13
+          - path: crates/bito-core/src/tokens.rs
+            start_line: 24
+            end_line: 30
+        evidence: |2
+          ## OpenAI Backend
+
+          The `openai` backend uses `bpe-openai` for exact cl100k_base BPE encoding.
+          No estimation, no greedy heuristics — this is the real tokenizer.
+
+          Use it when you need exact GPT-4 / cl100k_base counts.
+        evidence_lang: markdown
+        evidence_markers:
+          - lines: "3"
+            type: del
+            label: "The implementation delegates to o200k_base"
+          - lines: "6"
+            type: del
+            label: "The advertised model-family count is not delivered"
+        mechanism: |
+          The public guide defines `openai` as exact cl100k_base counting, while
+          `Backend::Openai` maps to ah-ah-ah's OpenAI backend and the implementation
+          module identifies that backend as exact o200k_base. These vocabularies
+          produce different counts, so token budgets selected for GPT-4-era
+          cl100k_base models are not the exact budgets the command claims to enforce.
+        remediation: |
+          Make the documented `openai` backend select cl100k_base. If o200k_base
+          support must remain, expose it as a separately named backend and preserve
+          `openai` as a compatibility alias during a documented migration.
+        temporal:
+          introduced: 2026-03-24
+          last_modified: 2026-03-24
+          commit_count: 1
+          monthly_commits: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: medium
+        effort_notes: "The upstream abstraction currently exposes o200k_base, so cl100k_base needs an upstream extension or a distinct local backend."
+
+      - slug: otel-endpoint-config-is-ignored
+        title: "The shipped otel_endpoint option has no implementation"
+        criterion: "FC-1"
+        surface: "Completeness"
+        concern: moderate
+        locations:
+          - path: config/bito.toml.example
+            start_line: 37
+            end_line: 39
+          - path: config/bito.yaml.example
+            start_line: 37
+            end_line: 39
+          - path: crates/bito-core/src/config.rs
+            start_line: 212
+            end_line: 262
+          - path: crates/bito/Cargo.toml
+            start_line: 48
+            end_line: 55
+        evidence: |2
+          # Config options:
+          # - log_dir = "/path/to/log/dir"
+          # - otel_endpoint = "http://127.0.0.1:4317"
+        evidence_lang: toml
+        evidence_markers:
+          - lines: "3"
+            type: del
+            label: "No Config field or runtime wiring consumes this option"
+        mechanism: |
+          Both shipped configuration templates advertise `otel_endpoint`, but
+          `bito_core::Config` has no such field and the CLI enables no librebar
+          OpenTelemetry capability. Serde accepts unknown fields by default, so a
+          user can set this option without a parse error while no exporter is
+          configured and no telemetry is sent.
+        remediation: |
+          Add a typed endpoint field, enable the corresponding librebar telemetry
+          capability, and wire it during application initialization. Reject malformed
+          endpoints and add a configuration-to-exporter smoke test so the option cannot
+          regress into a silent no-op.
+        temporal:
+          introduced: 2026-02-27
+          last_modified: 2026-04-01
+          commit_count: 8
+          monthly_commits: [0, 0, 0, 0, 0, 4, 3, 1, 0, 0, 0, 0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: medium
+        effort_notes: "This requires typed configuration plus initialization and validation wiring."
+
+  - slug: analysis-runtime
+    title: "The Analysis Runtime Surface"
+    thesis: "The core analyzers are memory-safe but one byte-index operation can panic and repeated ownership choices amplify allocation work on large documents."
+    verdict: "The UTF-8 truncation panic is the only production crash path found and should be fixed first. The remaining findings are localized efficiency and type-design issues: tokenization is repeated across passes, duplicate keys allocate before lookup, and adjacent primitive thresholds invite caller mistakes. None requires a new dependency."
+    flow:
+      - id: configure-analysis
+        label: "Configure analysis"
+        type: start
+        findings:
+          - slug: analysis-thresholds-share-primitive-type
+            label: "Threshold swap"
+      - id: split-document
+        label: "Split document"
+        type: process
+      - id: tokenize-passes
+        label: "Tokenize passes"
+        type: process
+        findings:
+          - slug: analysis-reallocates-word-vectors-per-sentence
+            label: "Repeated allocation"
+      - id: count-matches
+        label: "Count matches"
+        type: process
+        findings:
+          - slug: matched-words-cloned-before-map-lookup
+            label: "Clone per hit"
+      - id: render-snippet
+        label: "Render snippet"
+        type: process
+        findings:
+          - slug: sticky-sentence-utf8-truncation-panic
+            label: "UTF-8 panic"
+      - id: return-report
+        label: "Return report"
+        type: end
+    findings:
+      - slug: sticky-sentence-utf8-truncation-panic
+        title: "Sticky-sentence truncation panics at a non-UTF-8 boundary"
+        criterion: "11.1"
+        surface: "Panic & Program Flow"
+        concern: significant
+        locations:
+          - path: crates/bito-core/src/analysis/sticky.rs
+            start_line: 60
+            end_line: 65
+        evidence: |2
+          fn truncate(s: &str, max: usize) -> String {
+              if s.len() <= max {
+                  s.to_string()
+              } else {
+                  format!("{}...", &s[..max])
+              }
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "5"
+            type: del
+            label: "Byte offset is not guaranteed to be a UTF-8 character boundary"
+        mechanism: |
+          The public sticky-sentence analyzer passes user-controlled sentence text to
+          this helper with `max` set to 100. String length and slicing use byte offsets,
+          so any sticky sentence longer than 100 bytes whose multi-byte character
+          crosses offset 100 causes `&s[..max]` to panic. The panic is reachable through
+          the default CLI analysis, lint execution, and the MCP `analyze_writing`
+          request path.
+        remediation: |
+          Compute a valid boundary with `char_indices` (or a manual
+          `is_char_boundary` loop) before slicing. Add a regression case containing a
+          sticky sentence with a multi-byte character spanning byte 100. Do not use
+          `floor_char_boundary`; it stabilized after the project's Rust 1.89 MSRV.
+        temporal:
+          introduced: 2026-02-07
+          last_modified: 2026-03-24
+          commit_count: 2
+          monthly_commits: [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: trivial
+        effort_notes: "A boundary-safe slice and one regression test are sufficient."
+
+      - slug: analysis-reallocates-word-vectors-per-sentence
+        title: "Default analysis repeatedly allocates word vectors for every sentence"
+        criterion: "12.5"
+        surface: "Performance"
+        concern: advisory
+        locations:
+          - path: crates/bito-core/src/analysis/sticky.rs
+            start_line: 28
+            end_line: 37
+          - path: crates/bito-core/src/analysis/pacing.rs
+            start_line: 18
+            end_line: 24
+          - path: crates/bito-core/src/analysis/sentence_length.rs
+            start_line: 22
+            end_line: 26
+          - path: crates/bito-core/src/analysis/complex_paragraphs.rs
+            start_line: 22
+            end_line: 29
+          - path: crates/bito-core/src/analysis/echoes.rs
+            start_line: 17
+            end_line: 24
+        evidence: |2
+              for (idx, sentence) in sentences.iter().enumerate() {
+                  let s_words = text::extract_words(sentence);
+                  if s_words.is_empty() {
+                      continue;
+                  }
+                  let glue = s_words
+                      .iter()
+                      .filter(|w| GLUE_WORDS.contains(w.as_str()))
+                      .count();
+                  let pct = (glue as f64 / s_words.len() as f64) * 100.0;
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2"
+            type: del
+            label: "Allocates a Vec and lowercase String for every word in every iteration"
+        mechanism: |
+          `extract_words` returns `Vec<String>` and lowercases every token. Sticky,
+          pacing, sentence-length, complex-paragraph, and echoes analysis each invoke
+          it inside their own loops, so the default full analysis independently
+          tokenizes overlapping sentence or paragraph content several times. At the
+          supported multi-megabyte input size this creates allocation churn
+          proportional to the word count for each enabled pass, even where pacing and
+          sentence-length only need a count.
+        remediation: |
+          Tokenize once in the orchestration layer and share per-sentence or
+          per-paragraph token slices with private analysis helpers. Preserve the existing
+          public analyzer functions as compatibility wrappers around those helpers. For
+          count-only consumers, use an allocation-free word iterator or counting helper;
+          keep owned normalized tokens only where reports or maps require ownership.
+        temporal:
+          introduced: 2026-02-07
+          last_modified: 2026-03-24
+          commit_count: 2
+          monthly_commits: [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [matched-words-cloned-before-map-lookup]
+        effort: medium
+        effort_notes: "Sharing tokenization changes several internal function signatures but no public report types."
+
+      - slug: matched-words-cloned-before-map-lookup
+        title: "Matched words are cloned before every frequency-map lookup"
+        criterion: "3.1"
+        surface: "Ownership & Borrowing"
+        concern: advisory
+        locations:
+          - path: crates/bito-core/src/analysis/diction.rs
+            start_line: 15
+            end_line: 19
+          - path: crates/bito-core/src/analysis/jargon.rs
+            start_line: 15
+            end_line: 19
+        evidence: |2
+              // Check single words
+              for w in words {
+                  if VAGUE_WORDS.contains(w.as_str()) {
+                      *counts.entry(w.clone()).or_insert(0) += 1;
+                  }
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "4"
+            type: del
+            label: "Clones on every occurrence, including keys already present"
+        mechanism: |
+          `HashMap::entry` consumes its key, so `w.clone()` allocates before
+          determining whether the word is already present. Repeated vague or jargon
+          terms therefore allocate and immediately discard a duplicate `String` for
+          every occurrence. The input word vector outlives both analyses, so borrowed
+          `&str` keys satisfy the ownership contract and defer allocation until unique
+          report entries are produced.
+        remediation: |
+          Count with `HashMap<&str, usize>` using `w.as_str()` as the key, then allocate
+          owned strings only while constructing the final report. Apply the same change
+          to both diction and jargon analysis.
+        temporal:
+          introduced: 2026-02-07
+          last_modified: 2026-08-06
+          commit_count: 3
+          monthly_commits: [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [analysis-reallocates-word-vectors-per-sentence]
+        effort: trivial
+        effort_notes: "Borrowed map keys are valid for the function lifetime and report conversion already owns the final values."
+
+      - slug: analysis-thresholds-share-primitive-type
+        title: "Adjacent analysis thresholds can be silently swapped"
+        criterion: "10.3"
+        surface: "Idiomatic Patterns"
+        concern: moderate
+        locations:
+          - path: crates/bito-core/src/analysis/mod.rs
+            start_line: 60
+            end_line: 78
+        evidence: |2
+          /// Run full writing analysis.
+          ///
+          /// # Arguments
+          ///
+          /// * `input` — The text to analyze.
+          /// * `strip_md` — If `true`, strip markdown formatting before analysis.
+          /// * `checks` — Optional list of check names to run. If `None`, runs all.
+          /// * `max_grade` — Optional max readability grade.
+          /// * `passive_max` — Optional max passive voice percentage.
+          /// * `dialect` — Optional dialect for spelling enforcement.
+          #[tracing::instrument(skip(input), fields(text_len = input.len(), strip_md))]
+          pub fn run_full_analysis(
+              input: &str,
+              strip_md: bool,
+              checks: Option<&[String]>,
+              max_grade: Option<f64>,
+              passive_max: Option<f64>,
+              dialect: Option<Dialect>,
+          ) -> AnalysisResult<FullAnalysisReport> {
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "16-17"
+            type: del
+            label: "Distinct threshold domains have the same positional type"
+        mechanism: |
+          `max_grade` and `passive_max` are adjacent `Option<f64>` parameters in a
+          public function. Swapping them compiles and silently applies plausible
+          values to the wrong analyses; the type system cannot distinguish a grade
+          level from a percentage. This is especially hazardous for positional
+          forwarding code in CLI, MCP, and third-party callers.
+        remediation: |
+          Introduce validated semantic newtypes for grade and percentage thresholds
+          inside a named `AnalysisOptions` parameter. Retain the current function as a
+          deprecated compatibility wrapper so callers have a migration path.
+        temporal:
+          introduced: 2026-02-07
+          last_modified: 2026-03-24
+          commit_count: 4
+          monthly_commits: [0, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [analyze-thresholds-not-enforced]
+        effort: medium
+        effort_notes: "The type change is straightforward but requires a compatibility layer and updates at every call site."
+
+  - slug: dependency-hygiene
+    title: "The Dependency Hygiene Surface"
+    thesis: "The dependency tree has no known advisories or policy failures, but two direct declarations add avoidable maintenance weight."
+    verdict: "Supply-chain controls are strong: RustSec, licenses, sources, and bans all pass. Removing one unused runtime dependency and replacing one deprecated test-only parser would make the declared dependency surface match the otherwise clean posture."
+    findings:
+      - slug: unused-anyhow-in-bito-core
+        title: "bito-core declares unused anyhow dependency"
+        criterion: "7.4"
+        surface: "Supply Chain"
+        concern: advisory
+        locations:
+          - path: crates/bito-core/Cargo.toml
+            start_line: 35
+            end_line: 35
+        evidence: |2
+          anyhow = "1.0"
+        evidence_lang: toml
+        evidence_markers:
+          - lines: "1"
+            type: del
+            label: "Unused direct dependency"
+        mechanism: |
+          Both the Bito-scoped cargo-udeps run and cargo-machete identify `anyhow`
+          as unused by bito-core, and a source-wide scan confirms that the crate
+          contains no `anyhow` references. The declaration therefore adds an
+          unnecessary direct dependency and associated compilation and maintenance
+          cost.
+        remediation: |
+          Remove `anyhow` from bito-core's dependency declarations; the CLI crate's
+          separate, used `anyhow` dependency remains unaffected.
+        temporal:
+          introduced: 2026-03-24
+          last_modified: 2026-03-24
+          commit_count: 9
+          monthly_commits: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: trivial
+        effort_notes: "Removing one unused manifest entry requires no source changes."
+
+      - slug: deprecated-serde-yaml-dev-dependency
+        title: "bito-core tests depend on deprecated serde_yaml"
+        criterion: "13.5"
+        surface: "Dependency Fitness"
+        concern: advisory
+        locations:
+          - path: Cargo.lock
+            start_line: 1773
+            end_line: 1776
+        evidence: |2
+          [[package]]
+          name = "serde_yaml"
+          version = "0.9.34+deprecated"
+          source = "registry+https://github.com/rust-lang/crates.io-index"
+        evidence_lang: toml
+        evidence_markers:
+          - lines: "2-3"
+            type: mark
+            label: "Dependency resolves to an explicitly deprecated release"
+        mechanism: |
+          bito-core directly declares `serde_yaml` as a development dependency and
+          uses it in four configuration tests. Cargo.lock resolves that declaration
+          to the explicitly deprecated 0.9.34+deprecated release, while the workspace
+          lock already contains serde-saphyr through librebar. Keeping the deprecated
+          parser preserves an avoidable maintenance and test-build dependency.
+        remediation: |
+          Replace the bito-core test dependency and its four `from_str` calls with
+          serde-saphyr's compatible deserialization API, then regenerate the lockfile
+          through the project's dependency workflow.
+        temporal:
+          introduced: 2026-02-07
+          last_modified: 2026-02-07
+          commit_count: 20
+          monthly_commits: [0, 0, 0, 0, 0, 14, 4, 1, 0, 0, 0, 0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: small
+        effort_notes: "The dependency is test-only and has four localized call sites, but the replacement requires compiling the tests against the new parser API."
+
+summary:
+  counts:
+    critical: 0
+    significant: 5
+    moderate: 5
+    advisory: 4
+    note: 0
