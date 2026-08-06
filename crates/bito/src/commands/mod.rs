@@ -14,6 +14,7 @@ pub mod readability;
 #[cfg(feature = "mcp")]
 pub mod serve;
 pub mod tokens;
+pub mod update_check;
 
 /// Read a file and validate its size against the configured limit.
 ///

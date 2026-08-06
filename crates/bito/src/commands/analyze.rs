@@ -13,6 +13,7 @@ use bito_core::analysis::ALL_CHECKS;
 use bito_core::config::Dialect;
 
 use super::read_input_file;
+use crate::IssuesFound;
 
 /// Arguments for the `analyze` subcommand.
 #[derive(Args, Debug)]
@@ -81,7 +82,7 @@ pub fn cmd_analyze(
 
     if global_json {
         println!("{}", serde_json::to_string_pretty(&report)?);
-        return Ok(());
+        return style_gate(&args.file, style_min, &report);
     }
 
     // Text output — section by section
@@ -213,16 +214,26 @@ pub fn cmd_analyze(
         );
     }
 
-    // Check style score gate
+    style_gate(&args.file, style_min, &report)
+}
+
+/// Apply the minimum style-score threshold.
+///
+/// Both output paths call this. The JSON branch used to return early and skip
+/// it entirely, so `--json` reported a failing score and still exited 0.
+fn style_gate(
+    file: &Utf8PathBuf,
+    style_min: Option<i32>,
+    report: &analysis::FullAnalysisReport,
+) -> anyhow::Result<()> {
     if let (Some(min), Some(st)) = (style_min, &report.style)
         && st.style_score < min
     {
-        bail!(
-            "{} style score {} is below minimum {} — improve writing quality.",
-            args.file,
+        return Err(IssuesFound(format!(
+            "{file} style score {} is below minimum {min} — improve writing quality.",
             st.style_score,
-            min,
-        );
+        ))
+        .into());
     }
 
     Ok(())

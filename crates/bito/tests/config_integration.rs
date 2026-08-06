@@ -18,6 +18,9 @@ fn cmd() -> Command {
     let prefix = env!("CARGO_PKG_NAME").to_uppercase().replace('-', "_");
     let test_log_dir = std::env::temp_dir().join(format!("{}-test-logs", env!("CARGO_PKG_NAME")));
     cmd.env(format!("{prefix}_LOG_DIR"), test_log_dir);
+    // See the note on cli.rs's helper: an unsuppressed release check costs up
+    // to 30 seconds per subprocess on an offline runner.
+    cmd.env("BITO_NO_UPDATE_CHECK", "1");
     cmd
 }
 
@@ -379,4 +382,91 @@ fn config_in_same_dir_as_git_is_found() {
         json["config"]["config_file"].as_str().is_some(),
         "should report config file"
     );
+}
+
+// =============================================================================
+// Environment Variable Typing
+// =============================================================================
+//
+// These run with `-C <tempdir>` deliberately. Config discovery walks up from
+// the working directory, and bito's own `.config/bito.yaml` sets `max_grade`
+// and `passive_max_percent` — which is exactly what supplies the type these
+// tests exist to check. Run from the repo, they pass against a librebar that
+// cannot type an unset optional at all.
+
+/// Every numeric config field has to be settable from the environment.
+///
+/// librebar types environment values against the serialized defaults, and
+/// every numeric field on `Config` is an `Option<T>` defaulting to `None` —
+/// which serializes to `null` and carries no type. Before librebar 0.6 these
+/// arrived as strings and bito refused to start: exit 2, "invalid type:
+/// string". The failure was total, yet no test caught it, because all six
+/// existing environment tests set `BITO_DIALECT` — a string, and strings were
+/// the one shape that already worked.
+#[test]
+fn numeric_environment_variables_are_typed() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+
+    for (variable, value) in [
+        ("BITO_MAX_GRADE", "12.0"),
+        ("BITO_TOKEN_BUDGET", "4000"),
+        ("BITO_PASSIVE_MAX_PERCENT", "15.0"),
+        ("BITO_STYLE_MIN_SCORE", "70"),
+        ("BITO_MAX_INPUT_BYTES", "1048576"),
+        ("BITO_LOG_RETENTION_DAYS", "3"),
+    ] {
+        let output = cmd()
+            .env(variable, value)
+            .args(["-C", dir, "--format", "text", "info"])
+            .output()
+            .expect("failed to run command");
+
+        assert!(
+            output.status.success(),
+            "{variable}={value} should load: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+/// Parsing a value is not the same as applying it.
+///
+/// A field can deserialize and still never reach the check that reads it, so
+/// pin the effect: one document, two ceilings, opposite exit codes, with the
+/// environment as the only difference.
+#[test]
+fn env_max_grade_gates_the_readability_check() {
+    let tmp = TempDir::new().unwrap();
+    let doc = tmp.path().join("doc.md");
+    fs::write(&doc, "# Title\n\nShort text. It reads easily.\n").unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let doc = doc.to_str().unwrap();
+
+    cmd()
+        .env("BITO_MAX_GRADE", "20.0")
+        .args(["-C", dir, "--format", "text", "readability", doc])
+        .assert()
+        .code(0);
+
+    cmd()
+        .env("BITO_MAX_GRADE", "-5.0")
+        .args(["-C", dir, "--format", "text", "readability", doc])
+        .assert()
+        .code(1);
+}
+
+/// A value that is not a number names the variable and the type expected.
+#[test]
+fn an_unparseable_numeric_environment_variable_is_reported() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+
+    cmd()
+        .env("BITO_MAX_GRADE", "abc")
+        .args(["-C", dir, "--format", "text", "info"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("BITO_MAX_GRADE"))
+        .stderr(predicate::str::contains("number"));
 }

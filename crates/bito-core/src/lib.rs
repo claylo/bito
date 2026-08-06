@@ -39,11 +39,9 @@ pub mod text;
 pub mod tokens;
 pub mod word_lists;
 
-pub use config::{Config, ConfigLoader, CustomEntry, Dialect, LogLevel};
-pub use error::{AnalysisError, AnalysisResult, ConfigError, ConfigResult};
+pub use config::{Config, ConfigSources, CustomEntry, Dialect, LogLevel};
+pub use error::{AnalysisError, AnalysisResult, BoxError, ConfigError, ConfigResult};
 pub use tokens::Backend;
-
-pub mod observability;
 
 /// Default maximum input size: 5 MiB.
 pub const DEFAULT_MAX_INPUT_BYTES: usize = 5_242_880;

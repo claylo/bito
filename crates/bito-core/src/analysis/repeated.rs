@@ -1,5 +1,6 @@
 //! Repeated phrase detection.
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use super::reports::{RepeatedPhrase, RepeatedPhrasesReport};
@@ -34,7 +35,7 @@ pub fn analyze_repeated_phrases(words: &[String]) -> RepeatedPhrasesReport {
         .map(|(phrase, count)| RepeatedPhrase { phrase, count })
         .collect();
 
-    repeated.sort_by(|a, b| b.count.cmp(&a.count));
+    repeated.sort_by_key(|x| Reverse(x.count));
     repeated.truncate(50);
 
     let total = repeated.len();

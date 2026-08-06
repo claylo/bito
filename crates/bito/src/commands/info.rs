@@ -96,6 +96,7 @@ pub fn cmd_info(
     global_json: bool,
     config: &Config,
     sources: &ConfigSources,
+    update_notice: Option<String>,
 ) -> anyhow::Result<()> {
     let info = PackageInfo::new();
 
@@ -161,6 +162,13 @@ pub fn cmd_info(
         }
     }
 
+    // stderr, and only outside JSON: an update notice is incidental to what
+    // was asked for, and appending it to stdout would corrupt a piped
+    // document. `--format auto` makes that the common case, not the rare one.
+    if !global_json && let Some(notice) = update_notice {
+        eprintln!("{notice}");
+    }
+
     Ok(())
 }
 
@@ -196,12 +204,30 @@ mod tests {
 
     #[test]
     fn test_cmd_info_text_succeeds() {
-        assert!(cmd_info(InfoArgs::default(), false, &test_config(), &test_sources()).is_ok());
+        assert!(
+            cmd_info(
+                InfoArgs::default(),
+                false,
+                &test_config(),
+                &test_sources(),
+                None
+            )
+            .is_ok()
+        );
     }
 
     #[test]
     fn test_cmd_info_json_via_global() {
-        assert!(cmd_info(InfoArgs::default(), true, &test_config(), &test_sources()).is_ok());
+        assert!(
+            cmd_info(
+                InfoArgs::default(),
+                true,
+                &test_config(),
+                &test_sources(),
+                None
+            )
+            .is_ok()
+        );
     }
 
     #[test]

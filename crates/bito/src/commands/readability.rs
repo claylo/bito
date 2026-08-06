@@ -1,6 +1,6 @@
 //! Readability command — Flesch-Kincaid Grade Level scoring.
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use camino::Utf8PathBuf;
 use clap::Args;
 use owo_colors::OwoColorize;
@@ -9,6 +9,7 @@ use tracing::{debug, instrument};
 use bito_core::readability;
 
 use super::read_input_file;
+use crate::IssuesFound;
 
 /// Arguments for the `readability` subcommand.
 #[derive(Args, Debug)]
@@ -41,24 +42,29 @@ pub fn cmd_readability(
 
     if global_json {
         println!("{}", serde_json::to_string_pretty(&report)?);
-    } else if report.over_max {
-        let max = report.max_grade.unwrap_or(0.0);
-        bail!(
-            "{} scores {:.1} (max: {:.0}). Simplify sentences or reduce jargon.",
-            args.file,
-            report.grade,
-            max,
-        );
     } else if let Some(max) = report.max_grade {
-        println!(
-            "{} {} scores {:.1} (max: {:.0})",
-            "PASS:".green(),
-            args.file,
-            report.grade,
-            max,
-        );
+        if !report.over_max {
+            println!(
+                "{} {} scores {:.1} (max: {:.0})",
+                "PASS:".green(),
+                args.file,
+                report.grade,
+                max,
+            );
+        }
     } else {
         println!("{:.1}", report.grade);
+    }
+
+    // Outside the format branch on purpose: the threshold is the answer, not a
+    // rendering detail, so it has to hold whether output is text or JSON.
+    if report.over_max {
+        let max = report.max_grade.unwrap_or(0.0);
+        return Err(IssuesFound(format!(
+            "{} scores {:.1} (max: {:.0}). Simplify sentences or reduce jargon.",
+            args.file, report.grade, max,
+        ))
+        .into());
     }
 
     Ok(())

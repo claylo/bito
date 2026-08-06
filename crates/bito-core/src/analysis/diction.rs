@@ -1,5 +1,6 @@
 //! Vague word analysis.
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use crate::word_lists::{VAGUE_PHRASES, VAGUE_WORDS};
@@ -34,7 +35,7 @@ pub fn analyze_diction(text: &str, words: &[String]) -> DictionReport {
         .into_iter()
         .map(|(word, count)| VagueWordCount { word, count })
         .collect();
-    most_common.sort_by(|a, b| b.count.cmp(&a.count));
+    most_common.sort_by_key(|x| Reverse(x.count));
 
     DictionReport {
         total_vague,

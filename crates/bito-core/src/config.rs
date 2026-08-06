@@ -23,24 +23,21 @@
 //! The first matching file wins within a directory; the search stops at the
 //! closest directory containing a match.
 //!
+//! Discovery and merging are librebar's; this module owns the config *types*
+//! and a thin [`load`] over `librebar::config::ConfigLoader`.
+//!
 //! # Example
 //! ```no_run
 //! use camino::Utf8PathBuf;
-//! use bito_core::config::{Config, ConfigLoader};
 //!
 //! let cwd = std::env::current_dir().unwrap();
 //! let cwd = Utf8PathBuf::try_from(cwd).expect("current directory is not valid UTF-8");
-//! let config = ConfigLoader::new()
-//!     .with_project_search(&cwd)
-//!     .load()
-//!     .unwrap();
+//! let (config, sources) = bito_core::config::load(&cwd, None).unwrap();
 //! ```
 
 use std::collections::HashMap;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use figment::Figment;
-use figment::providers::{Env, Format, Json, Serialized, Toml, Yaml};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ConfigError, ConfigResult};
@@ -217,6 +214,14 @@ pub struct Config {
     pub log_level: LogLevel,
     /// Directory for JSONL log files (falls back to platform defaults if unset).
     pub log_dir: Option<Utf8PathBuf>,
+    /// How many days to keep rotated log files. Defaults to 7 when unset.
+    ///
+    /// Set to `0` to keep rotated logs forever, which is what you want when
+    /// logrotate or a log shipper owns the directory. Omitting the field and
+    /// setting it to null both mean "use the default": an `Option<u64>` that
+    /// was never set serializes to null, so null cannot mean anything else
+    /// without the default becoming unreachable.
+    pub log_retention_days: Option<u64>,
     /// Default token budget for the `tokens` command.
     pub token_budget: Option<usize>,
     /// Default maximum Flesch-Kincaid grade level for the `readability` command.
@@ -283,251 +288,44 @@ impl LogLevel {
     }
 }
 
-/// Metadata about which configuration sources were loaded.
+/// Config source metadata, re-exported from librebar.
 ///
-/// Returned alongside [`Config`] from [`ConfigLoader::load()`] so commands
-/// can report the actual config files without re-discovering them.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct ConfigSources {
-    /// Project config files found by walking up, ordered low→high precedence.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub project_files: Vec<Utf8PathBuf>,
-    /// User config file from XDG config directory.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_file: Option<Utf8PathBuf>,
-    /// Explicit config files loaded (e.g., from `--config` flag).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub explicit_files: Vec<Utf8PathBuf>,
-}
-
-impl ConfigSources {
-    /// Returns the highest-precedence config file that was loaded.
-    ///
-    /// Precedence: explicit files > project files > user file.
-    pub fn primary_file(&self) -> Option<&Utf8Path> {
-        self.explicit_files
-            .last()
-            .map(Utf8PathBuf::as_path)
-            .or_else(|| self.project_files.last().map(Utf8PathBuf::as_path))
-            .or(self.user_file.as_deref())
-    }
-}
-
-/// Supported configuration file extensions (in order of preference).
-const CONFIG_EXTENSIONS: &[&str] = &["toml", "yaml", "yml", "json"];
+/// Consumers use [`ConfigSources::primary_file`], which librebar's type
+/// provides with identical precedence semantics (explicit > project > user).
+/// librebar's version additionally records applied environment variables and
+/// the winning origin of every merged value.
+pub use librebar::config::ConfigSources;
 
 /// Application name for XDG directory lookup and config file names.
 const APP_NAME: &str = "bito";
 
-/// Builder for loading configuration from multiple sources.
-#[derive(Debug, Default)]
-pub struct ConfigLoader {
-    /// Starting directory for project config search.
-    project_search_root: Option<Utf8PathBuf>,
-    /// Whether to include user config from XDG directory.
-    include_user_config: bool,
-    /// Stop searching when we hit a directory containing this file/dir.
-    boundary_marker: Option<String>,
-    /// Explicit config files to load (for testing or programmatic use).
-    explicit_files: Vec<Utf8PathBuf>,
-}
-
-impl ConfigLoader {
-    /// Create a new config loader with default settings.
-    pub fn new() -> Self {
-        Self {
-            project_search_root: None,
-            include_user_config: true,
-            boundary_marker: Some(".git".to_string()),
-            explicit_files: Vec::new(),
-        }
-    }
-
-    /// Set the starting directory for project config search.
-    ///
-    /// The loader will walk up from this directory looking for config files.
-    pub fn with_project_search<P: AsRef<Utf8Path>>(mut self, path: P) -> Self {
-        self.project_search_root = Some(path.as_ref().to_path_buf());
-        self
-    }
-
-    /// Set whether to include user config from `~/.config/bito/`.
-    pub const fn with_user_config(mut self, include: bool) -> Self {
-        self.include_user_config = include;
-        self
-    }
-
-    /// Set a boundary marker to stop directory traversal.
-    ///
-    /// When walking up directories, stop if we find a directory containing
-    /// this file or directory name. Default is `.git`.
-    pub fn with_boundary_marker<S: Into<String>>(mut self, marker: S) -> Self {
-        self.boundary_marker = Some(marker.into());
-        self
-    }
-
-    /// Disable boundary marker (search all the way to filesystem root).
-    pub fn without_boundary_marker(mut self) -> Self {
-        self.boundary_marker = None;
-        self
-    }
-
-    /// Add an explicit config file to load.
-    ///
-    /// Files are loaded in order, with later files taking precedence.
-    /// Explicit files are loaded after discovered files.
-    pub fn with_file<P: AsRef<Utf8Path>>(mut self, path: P) -> Self {
-        self.explicit_files.push(path.as_ref().to_path_buf());
-        self
-    }
-
-    /// Load configuration, merging all discovered sources.
-    ///
-    /// Returns the merged config alongside metadata about which files
-    /// were loaded — pass the [`ConfigSources`] to commands instead of
-    /// having them re-discover config files.
-    ///
-    /// Precedence (highest to lowest):
-    /// 1. Explicit files (in order added via `with_file`)
-    /// 2. Project config (closest to search root)
-    /// 3. User config (`~/.config/bito/config.<ext>`)
-    /// 4. Default values
-    #[tracing::instrument(skip(self), fields(search_root = ?self.project_search_root))]
-    pub fn load(self) -> ConfigResult<(Config, ConfigSources)> {
-        tracing::debug!("loading configuration");
-        let mut figment = Figment::new().merge(Serialized::defaults(Config::default()));
-        let mut sources = ConfigSources::default();
-
-        // Start with user config (lowest precedence of file sources)
-        if self.include_user_config
-            && let Some(user_config) = self.find_user_config()
-        {
-            figment = Self::merge_file(figment, &user_config);
-            sources.user_file = Some(user_config);
-        }
-
-        // Add project configs (ordered low→high precedence)
-        if let Some(ref root) = self.project_search_root {
-            let project_configs = self.find_project_configs(root);
-            for pc in &project_configs {
-                figment = Self::merge_file(figment, pc);
-            }
-            sources.project_files = project_configs;
-        }
-
-        // Add explicit files
-        for file in &self.explicit_files {
-            figment = Self::merge_file(figment, file);
-        }
-        sources.explicit_files = self.explicit_files;
-
-        // Environment variables (highest precedence)
-        // BITO_DIALECT=en-gb, BITO_LOG_LEVEL=debug, etc.
-        figment = figment.merge(Env::prefixed("BITO_").lowercase(true));
-
-        let config: Config = figment
-            .extract()
-            .map_err(|e| ConfigError::Deserialize(Box::new(e)))?;
-        tracing::info!(
-            log_level = config.log_level.as_str(),
-            "configuration loaded"
-        );
-        Ok((config, sources))
-    }
-
-    /// Load configuration, returning an error if no config file is found.
-    pub fn load_or_error(self) -> ConfigResult<(Config, ConfigSources)> {
-        let has_user = self.include_user_config && self.find_user_config().is_some();
-        let has_project = self
-            .project_search_root
-            .as_ref()
-            .map(|root| !self.find_project_configs(root).is_empty())
-            .unwrap_or(false);
-        let has_explicit = !self.explicit_files.is_empty();
-
-        if !has_user && !has_project && !has_explicit {
-            return Err(ConfigError::NotFound);
-        }
-
-        self.load()
-    }
-
-    /// Find project config files by walking up from the given directory.
-    ///
-    /// Returns the highest-precedence config file from the closest directory
-    /// that has a match. Precedence: `.config/bito.<ext>` > `.bito.<ext>` > `bito.<ext>`.
-    fn find_project_configs(&self, start: &Utf8Path) -> Vec<Utf8PathBuf> {
-        let mut current = Some(start.to_path_buf());
-
-        while let Some(dir) = current {
-            // Check for config files in this directory (try each extension)
-            for ext in CONFIG_EXTENSIONS {
-                // Try .config/ directory first (.config/bito.toml)
-                let dotconfig = dir.join(format!(".config/{APP_NAME}.{ext}"));
-                if dotconfig.is_file() {
-                    return vec![dotconfig];
-                }
-
-                // Then dotfile (.bito.toml)
-                let dotfile = dir.join(format!(".{APP_NAME}.{ext}"));
-                if dotfile.is_file() {
-                    return vec![dotfile];
-                }
-
-                // Then regular name (bito.toml)
-                let regular = dir.join(format!("{APP_NAME}.{ext}"));
-                if regular.is_file() {
-                    return vec![regular];
-                }
-            }
-
-            // Check for boundary marker AFTER checking config files,
-            // so a config in the same directory as the marker is found.
-            if let Some(ref marker) = self.boundary_marker
-                && dir.join(marker).exists()
-                && dir != start
-            {
-                break;
-            }
-
-            current = dir.parent().map(Utf8Path::to_path_buf);
-        }
-
-        Vec::new()
-    }
-
-    /// Find user config in XDG config directory.
-    fn find_user_config(&self) -> Option<Utf8PathBuf> {
-        let proj_dirs = directories::ProjectDirs::from("", "", APP_NAME)?;
-        let config_dir = proj_dirs.config_dir();
-
-        // Try each supported extension
-        for ext in CONFIG_EXTENSIONS {
-            let config_path = config_dir.join(format!("config.{ext}"));
-            if config_path.is_file() {
-                return Utf8PathBuf::from_path_buf(config_path).ok();
-            }
-        }
-
-        None
-    }
-
-    /// Merge a config file into the figment, detecting format from extension.
-    fn merge_file(figment: Figment, path: &Utf8Path) -> Figment {
-        match path.extension() {
-            Some("toml") => figment.merge(Toml::file_exact(path.as_str())),
-            Some("yaml" | "yml") => figment.merge(Yaml::file_exact(path.as_str())),
-            Some("json") => figment.merge(Json::file_exact(path.as_str())),
-            _ => figment.merge(Toml::file_exact(path.as_str())),
-        }
-    }
-}
-
-/// Get the project directories for XDG-compliant path resolution.
+/// Load bito configuration, merging all discovered sources.
 ///
-/// Returns `None` if the home directory cannot be determined.
-fn project_dirs() -> Option<directories::ProjectDirs> {
-    directories::ProjectDirs::from("", "", APP_NAME)
+/// Walks up from `cwd` looking for `.config/bito.{toml,yaml,yml,json}`,
+/// `.bito.{ext}`, then `bito.{ext}`, stopping at a `.git` boundary, and layers
+/// the user config directory underneath. `explicit` is loaded on top when
+/// supplied.
+///
+/// Precedence, highest first: explicit file (`-c`) > environment (`BITO_*`) >
+/// project config (closest wins) > user config > struct defaults.
+///
+/// Note that an explicit file now outranks the environment. The previous
+/// figment-based loader merged `BITO_*` last, so environment variables won.
+/// librebar treats a named file as deliberate user selection and applies it
+/// after the environment.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::Load`] if a config file cannot be read or parsed, or
+/// if the merged result cannot be deserialized into [`Config`].
+pub fn load(cwd: &Utf8Path, explicit: Option<&Utf8Path>) -> ConfigResult<(Config, ConfigSources)> {
+    let mut loader = librebar::config::ConfigLoader::new(APP_NAME).with_project_search(cwd);
+    if let Some(path) = explicit {
+        loader = loader.with_file(path);
+    }
+    loader
+        .load::<Config>()
+        .map_err(|error| ConfigError::Load(Box::new(error)))
 }
 
 /// Get the user config directory path.
@@ -535,8 +333,7 @@ fn project_dirs() -> Option<directories::ProjectDirs> {
 /// Returns `~/.config/bito/` on Linux, `~/Library/Application Support/bito/`
 /// on macOS, and equivalent on other platforms.
 pub fn user_config_dir() -> Option<Utf8PathBuf> {
-    let proj_dirs = project_dirs()?;
-    Utf8PathBuf::from_path_buf(proj_dirs.config_dir().to_path_buf()).ok()
+    librebar::config::user_config_dir(APP_NAME)
 }
 
 /// Get the user cache directory path.
@@ -544,8 +341,7 @@ pub fn user_config_dir() -> Option<Utf8PathBuf> {
 /// Returns `~/.cache/bito/` on Linux, `~/Library/Caches/bito/`
 /// on macOS, and equivalent on other platforms.
 pub fn user_cache_dir() -> Option<Utf8PathBuf> {
-    let proj_dirs = project_dirs()?;
-    Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).ok()
+    librebar::config::user_cache_dir(APP_NAME)
 }
 
 /// Get the user data directory path.
@@ -553,8 +349,7 @@ pub fn user_cache_dir() -> Option<Utf8PathBuf> {
 /// Returns `~/.local/share/bito/` on Linux, `~/Library/Application Support/bito/`
 /// on macOS, and equivalent on other platforms.
 pub fn user_data_dir() -> Option<Utf8PathBuf> {
-    let proj_dirs = project_dirs()?;
-    Utf8PathBuf::from_path_buf(proj_dirs.data_dir().to_path_buf()).ok()
+    librebar::config::user_data_dir(APP_NAME)
 }
 
 /// Get the local data directory path (machine-specific, not synced).
@@ -562,8 +357,7 @@ pub fn user_data_dir() -> Option<Utf8PathBuf> {
 /// Returns `~/.local/share/bito/` on Linux, `~/Library/Application Support/bito/`
 /// on macOS, and equivalent on other platforms.
 pub fn user_data_local_dir() -> Option<Utf8PathBuf> {
-    let proj_dirs = project_dirs()?;
-    Utf8PathBuf::from_path_buf(proj_dirs.data_local_dir().to_path_buf()).ok()
+    librebar::config::user_data_local_dir(APP_NAME)
 }
 
 #[cfg(test)]
@@ -586,12 +380,12 @@ mod tests {
 
     #[test]
     fn test_loader_builds_with_defaults() {
-        let loader = ConfigLoader::new()
+        let loader = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .without_boundary_marker();
 
         // Should succeed with defaults even if no files found
-        let (config, sources) = loader.load().unwrap();
+        let (config, sources) = loader.load::<Config>().unwrap();
         assert_eq!(config.log_level, LogLevel::Info);
         assert!(sources.primary_file().is_none());
     }
@@ -611,10 +405,10 @@ log_dir = "/tmp/bito"
         // Convert to Utf8PathBuf for API call
         let config_path = Utf8PathBuf::try_from(config_path).unwrap();
 
-        let (config, _sources) = ConfigLoader::new()
+        let (config, _sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .with_file(&config_path)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         assert_eq!(config.log_level, LogLevel::Debug);
@@ -638,11 +432,11 @@ log_dir = "/tmp/bito"
         let base_config = Utf8PathBuf::try_from(base_config).unwrap();
         let override_config = Utf8PathBuf::try_from(override_config).unwrap();
 
-        let (config, _sources) = ConfigLoader::new()
+        let (config, _sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .with_file(&base_config)
             .with_file(&override_config)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         // Later file wins
@@ -664,15 +458,15 @@ log_dir = "/tmp/bito"
         let sub_dir = Utf8PathBuf::try_from(sub_dir).unwrap();
 
         // Search from deep subdirectory
-        let (config, sources) = ConfigLoader::new()
+        let (config, sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .without_boundary_marker()
             .with_project_search(&sub_dir)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         assert_eq!(config.log_level, LogLevel::Debug);
-        assert!(!sources.project_files.is_empty());
+        assert!(sources.project_file.is_some());
     }
 
     #[test]
@@ -688,20 +482,20 @@ log_dir = "/tmp/bito"
 
         let project_dir = Utf8PathBuf::try_from(project_dir).unwrap();
 
-        let (config, sources) = ConfigLoader::new()
+        let (config, sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .without_boundary_marker()
             .with_project_search(&project_dir)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         // .config/ should win over dotfile
         assert_eq!(config.log_level, LogLevel::Debug);
         assert!(
             sources
-                .project_files
-                .iter()
-                .any(|p| p.as_str().contains(".config/"))
+                .project_file
+                .as_ref()
+                .is_some_and(|p| p.as_str().contains(".config/"))
         );
     }
 
@@ -725,16 +519,16 @@ log_dir = "/tmp/bito"
         let work = Utf8PathBuf::try_from(work).unwrap();
 
         // Search from work directory - should not find parent config
-        let (config, sources) = ConfigLoader::new()
+        let (config, sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .with_boundary_marker(".git")
             .with_project_search(&work)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         // Should get default since config is beyond boundary
         assert_eq!(config.log_level, LogLevel::Info);
-        assert!(sources.project_files.is_empty());
+        assert!(sources.project_file.is_none());
     }
 
     #[test]
@@ -753,28 +547,28 @@ log_dir = "/tmp/bito"
         let tmp_path = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
         let override_config = Utf8PathBuf::try_from(override_config).unwrap();
 
-        let (config, sources) = ConfigLoader::new()
+        let (config, sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .without_boundary_marker()
             .with_project_search(&tmp_path)
             .with_file(&override_config)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         // Explicit file wins over project config
         assert_eq!(config.log_level, LogLevel::Error);
-        assert!(!sources.project_files.is_empty());
+        assert!(sources.project_file.is_some());
         assert_eq!(sources.explicit_files.len(), 1);
     }
 
     #[test]
     fn test_load_or_error_fails_when_no_config() {
-        let result = ConfigLoader::new()
+        let result = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .without_boundary_marker()
-            .load_or_error();
+            .load_or_error::<Config>();
 
-        assert!(matches!(result, Err(ConfigError::NotFound)));
+        assert!(matches!(result, Err(librebar::Error::ConfigNotFound)));
     }
 
     #[test]
@@ -786,10 +580,10 @@ log_dir = "/tmp/bito"
         // Convert to Utf8PathBuf for API call
         let config_path = Utf8PathBuf::try_from(config_path).unwrap();
 
-        let (config, _sources) = ConfigLoader::new()
+        let (config, _sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .with_file(&config_path)
-            .load_or_error()
+            .load_or_error::<Config>()
             .unwrap();
 
         assert_eq!(config.log_level, LogLevel::Debug);
@@ -816,10 +610,10 @@ log_dir = "/tmp/bito"
 
         let config_path = Utf8PathBuf::try_from(config_path).unwrap();
 
-        let (config, _sources) = ConfigLoader::new()
+        let (config, _sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .with_file(&config_path)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         // disable_input_limit should be true, signalling callers to ignore max_input_bytes
@@ -841,10 +635,10 @@ log_dir = "/tmp/bito"
 
         let config_path = Utf8PathBuf::try_from(config_path).unwrap();
 
-        let (config, _sources) = ConfigLoader::new()
+        let (config, _sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .with_file(&config_path)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         assert_eq!(config.dialect, Some(Dialect::EnGb));
@@ -864,10 +658,10 @@ log_dir = "/tmp/bito"
 
             let config_path = Utf8PathBuf::try_from(config_path).unwrap();
 
-            let (config, _sources) = ConfigLoader::new()
+            let (config, _sources) = librebar::config::ConfigLoader::new(APP_NAME)
                 .with_user_config(false)
                 .with_file(&config_path)
-                .load()
+                .load::<Config>()
                 .unwrap();
 
             assert_eq!(config.dialect, Some(expected), "failed for {input}");
@@ -898,10 +692,10 @@ log_dir = "/tmp/bito"
             std::env::set_var("BITO_DIALECT", "en-ca");
         }
 
-        let (config, _sources) = ConfigLoader::new()
+        let (config, _sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .without_boundary_marker()
-            .load()
+            .load::<Config>()
             .unwrap();
 
         assert_eq!(config.dialect, Some(Dialect::EnCa));
@@ -912,9 +706,16 @@ log_dir = "/tmp/bito"
         }
     }
 
+    /// An explicitly named file outranks the environment.
+    ///
+    /// This reverses the figment-era behavior, where `BITO_*` was merged last
+    /// and always won. librebar treats `-c file.toml` as deliberate user
+    /// selection and applies it after the environment overlay. Naming a file
+    /// and then having a stale exported variable silently override it was the
+    /// worse of the two failure modes.
     #[test]
     #[allow(unsafe_code)]
-    fn test_env_var_overrides_file_config() {
+    fn explicit_file_overrides_env_var() {
         let _lock = TEST_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
 
         let tmp = TempDir::new().unwrap();
@@ -928,12 +729,48 @@ log_dir = "/tmp/bito"
             std::env::set_var("BITO_DIALECT", "en-au");
         }
 
-        let (config, _sources) = ConfigLoader::new()
+        let (config, _sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .with_file(&config_path)
-            .load()
+            .load::<Config>()
             .unwrap();
 
+        assert_eq!(config.dialect, Some(Dialect::EnUs));
+
+        // SAFETY: Cleanup after test.
+        unsafe {
+            std::env::remove_var("BITO_DIALECT");
+        }
+    }
+
+    /// The environment still outranks a *discovered* project file.
+    ///
+    /// Only explicit selection was promoted above the environment; ambient
+    /// discovery was not. This is the half of the old behavior that survives,
+    /// and it is worth pinning separately so a future loader change cannot
+    /// collapse the two cases back together unnoticed.
+    #[test]
+    #[allow(unsafe_code)]
+    fn env_var_overrides_discovered_project_config() {
+        let _lock = TEST_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("bito.toml"), "dialect = \"en-us\"\n").unwrap();
+        let root = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
+
+        // SAFETY: Test environment — mutex serializes env access across tests.
+        unsafe {
+            std::env::set_var("BITO_DIALECT", "en-au");
+        }
+
+        let (config, sources) = librebar::config::ConfigLoader::new(APP_NAME)
+            .with_user_config(false)
+            .without_boundary_marker()
+            .with_project_search(&root)
+            .load::<Config>()
+            .unwrap();
+
+        assert!(sources.project_file.is_some());
         assert_eq!(config.dialect, Some(Dialect::EnAu));
 
         // SAFETY: Cleanup after test.
@@ -982,6 +819,33 @@ rules:
         assert!(config.rules.is_none());
     }
 
+    /// librebar reads bito's logging settings off the *serialized* config by
+    /// field name, so renaming one here compiles cleanly and silently stops
+    /// the setting from ever reaching the log writer. Nothing else pins these
+    /// three names.
+    #[test]
+    fn logging_fields_serialize_under_the_names_librebar_reads() {
+        let value = serde_json::to_value(Config::default()).expect("serialize config");
+
+        for key in ["log_level", "log_dir", "log_retention_days"] {
+            assert!(
+                value.get(key).is_some(),
+                "librebar looks up `{key}` on the serialized config; found keys: {:?}",
+                value.as_object().map(|map| map.keys().collect::<Vec<_>>())
+            );
+        }
+    }
+
+    /// Retention is unset by default so librebar's seven-day window applies.
+    /// `0` is the opt-out; null and absent both mean "use the default".
+    #[test]
+    fn log_retention_days_defaults_to_unset() {
+        assert!(Config::default().log_retention_days.is_none());
+
+        let config: Config = serde_yaml::from_str("log_retention_days: 0\n").unwrap();
+        assert_eq!(config.log_retention_days, Some(0));
+    }
+
     #[test]
     fn bito_config_discovered() {
         let tmp = TempDir::new().unwrap();
@@ -990,15 +854,15 @@ rules:
 
         let tmp_path = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let (config, sources) = ConfigLoader::new()
+        let (config, sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .without_boundary_marker()
             .with_project_search(&tmp_path)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         assert_eq!(config.log_level, LogLevel::Debug);
-        assert!(!sources.project_files.is_empty());
+        assert!(sources.project_file.is_some());
     }
 
     #[test]
@@ -1015,16 +879,16 @@ rules:
 
         let child_path = Utf8PathBuf::try_from(child).unwrap();
 
-        let (config, sources) = ConfigLoader::new()
+        let (config, sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .without_boundary_marker()
             .with_project_search(&child_path)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         // Only child's config should be found — parent's .bito.toml ignored
         assert_eq!(config.log_level, LogLevel::Error);
-        assert_eq!(sources.project_files.len(), 1);
+        assert!(sources.project_file.is_some());
     }
 
     #[test]
@@ -1113,14 +977,14 @@ custom:
 
         let tmp_path = Utf8PathBuf::try_from(tmp.path().to_path_buf()).unwrap();
 
-        let (config, sources) = ConfigLoader::new()
+        let (config, sources) = librebar::config::ConfigLoader::new(APP_NAME)
             .with_user_config(false)
             .without_boundary_marker()
             .with_project_search(&tmp_path)
-            .load()
+            .load::<Config>()
             .unwrap();
 
         assert_eq!(config.log_level, LogLevel::Debug);
-        assert_eq!(sources.project_files.len(), 1);
+        assert!(sources.project_file.is_some());
     }
 }

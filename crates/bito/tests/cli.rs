@@ -17,6 +17,11 @@ fn cmd() -> Command {
     let prefix = env!("CARGO_PKG_NAME").to_uppercase().replace('-', "_");
     let test_log_dir = std::env::temp_dir().join(format!("{}-test-logs", env!("CARGO_PKG_NAME")));
     cmd.env(format!("{prefix}_LOG_DIR"), test_log_dir);
+    // Suppress the release check. `info` and `doctor` reach GitHub, and
+    // librebar's HTTP timeout is 30 seconds, so an offline runner with a cold
+    // cache stalls once per subprocess. No test needs a live check; the ones
+    // about update behavior set this themselves to say so at the call site.
+    cmd.env("BITO_NO_UPDATE_CHECK", "1");
     cmd
 }
 
@@ -111,13 +116,16 @@ fn info_json_contains_expected_fields() {
         .stdout(predicate::str::contains("\"version\""));
 }
 
+/// `--format` is the documented output flag. `--json` still works but is
+/// hidden, so it is deliberately absent from help.
 #[test]
 fn info_help_shows_command_options() {
     cmd()
         .args(["info", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("--json"));
+        .stdout(predicate::str::contains("--format"))
+        .stdout(predicate::str::contains("--json").not());
 }
 
 // =============================================================================
@@ -180,7 +188,7 @@ fn unknown_check_name_fails() {
             "readablity",
         ])
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("unknown check"));
 }
 
@@ -218,7 +226,7 @@ fn exclude_unknown_name_fails() {
             "bogus",
         ])
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("unknown check"));
 }
 
@@ -236,7 +244,7 @@ fn checks_and_exclude_conflict() {
             "style",
         ])
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("cannot be used with"));
 }
 
@@ -300,7 +308,7 @@ fn invalid_subcommand_shows_error() {
     cmd()
         .arg("not-a-command")
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("error:"));
 }
 
@@ -309,7 +317,7 @@ fn invalid_flag_shows_error() {
     cmd()
         .arg("--not-a-flag")
         .assert()
-        .failure()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
         .stderr(predicate::str::contains("error:"));
 }
 
@@ -322,10 +330,37 @@ fn lint_no_rules_skips() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), "The cat sat on the mat.").unwrap();
     cmd()
-        .args(["lint", tmp.path().to_str().unwrap()])
+        .args(["--format", "text", "lint", tmp.path().to_str().unwrap()])
         .assert()
         .success()
         .stdout(predicate::str::contains("no rules"));
+}
+
+/// A skipped lint must still emit parseable JSON.
+///
+/// Both skip paths used to print nothing at all in JSON mode. That was
+/// invisible while `--json` was opt-in; `--format auto` makes JSON the default
+/// for redirected output, so `bito lint file | jq` would have been handed an
+/// empty stream.
+#[test]
+fn lint_skip_emits_json_when_redirected() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), "The cat sat on the mat.").unwrap();
+
+    // assert_cmd pipes stdout, so `--format auto` resolves to JSON here.
+    let output = cmd()
+        .args(["lint", tmp.path().to_str().unwrap()])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("a skipped lint should still emit valid JSON");
+    assert_eq!(json["pass"], true);
+    assert!(
+        json["skipped"].is_string(),
+        "skip reason should be reported: {json}"
+    );
 }
 
 #[test]
@@ -391,6 +426,8 @@ fn lint_no_match_skips_cleanly() {
 
     cmd()
         .args([
+            "--format",
+            "text",
             "--config",
             config_path.to_str().unwrap(),
             "lint",
@@ -487,5 +524,249 @@ fn chdir_nonexistent_fails() {
     cmd()
         .args(["-C", "/nonexistent/path/that/does/not/exist", "info"])
         .assert()
-        .failure();
+        .code(i32::from(bito::EXIT_TOOL_ERROR));
+}
+
+// =============================================================================
+// Exit Codes
+// =============================================================================
+//
+// 0 = clean, 1 = issues found, 2 = bito could not run.
+//
+// `.failure()` is true of any non-zero code, so the assertions elsewhere in
+// this file never pinned these apart. These use `.code(...)`.
+
+/// Prose complex enough to fail a readability or passive-voice threshold.
+const DENSE_PROSE: &str = "\
+The implementation of the aforementioned architectural methodology necessitates
+comprehensive reconsideration of the organizational infrastructure. It was
+decided by the committee that the proposal would be reviewed. The document was
+written by the team and was approved by management.
+";
+
+fn dense_prose_file() -> tempfile::NamedTempFile {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), DENSE_PROSE).unwrap();
+    tmp
+}
+
+/// A threshold miss is a result, not a failure.
+#[test]
+fn threshold_miss_exits_with_issues_code() {
+    let tmp = dense_prose_file();
+    cmd()
+        .args([
+            "--format",
+            "text",
+            "readability",
+            tmp.path().to_str().unwrap(),
+            "--max-grade",
+            "5",
+        ])
+        .assert()
+        .code(i32::from(bito::EXIT_ISSUES_FOUND));
+}
+
+/// A finding prints bare, without the `Error:` prefix reserved for failures.
+#[test]
+fn threshold_miss_prints_without_error_prefix() {
+    let tmp = dense_prose_file();
+    cmd()
+        .args([
+            "--format",
+            "text",
+            "readability",
+            tmp.path().to_str().unwrap(),
+            "--max-grade",
+            "5",
+        ])
+        .assert()
+        .code(i32::from(bito::EXIT_ISSUES_FOUND))
+        .stderr(predicate::str::contains("Simplify sentences"))
+        .stderr(predicate::str::contains("Error:").not());
+}
+
+/// Thresholds hold in JSON mode too.
+///
+/// Every one of these commands used to return early on the JSON branch, before
+/// reaching its threshold check, so `--json` printed a report saying the input
+/// failed and exited 0 anyway. Task 5 made JSON the default for redirected
+/// output, which turned that into the default behavior for pipelines and CI.
+#[test]
+fn thresholds_hold_in_json_mode() {
+    let tmp = dense_prose_file();
+    let path = tmp.path().to_str().unwrap();
+
+    for args in [
+        vec!["readability", path, "--max-grade", "5"],
+        vec!["grammar", path, "--passive-max", "1"],
+        vec!["tokens", path, "--budget", "1"],
+        vec!["analyze", path, "--style-min", "99"],
+    ] {
+        let label = args[0].to_string();
+        cmd()
+            .args(["--format", "json"])
+            .args(&args)
+            .assert()
+            .code(predicate::eq(i32::from(bito::EXIT_ISSUES_FOUND)))
+            .stderr(predicate::str::is_empty().not());
+        // The report itself must still be on stdout.
+        let output = cmd()
+            .args(["--format", "json"])
+            .args(&args)
+            .output()
+            .unwrap();
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .unwrap_or_else(|e| panic!("{label} --format json should emit a report: {e}"));
+    }
+}
+
+/// Input that meets every threshold exits clean.
+#[test]
+fn passing_input_exits_zero() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), "The cat sat. The dog ran.").unwrap();
+    cmd()
+        .args([
+            "--format",
+            "json",
+            "readability",
+            tmp.path().to_str().unwrap(),
+            "--max-grade",
+            "20",
+        ])
+        .assert()
+        .success();
+}
+
+/// A malformed config is a real failure and keeps the tool-error code.
+#[test]
+fn config_error_exits_with_tool_error_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("bito.toml");
+    std::fs::write(&config, "not toml at all {{{").unwrap();
+
+    let tmp = dense_prose_file();
+    cmd()
+        .args([
+            "--config",
+            config.to_str().unwrap(),
+            "readability",
+            tmp.path().to_str().unwrap(),
+        ])
+        .assert()
+        .code(i32::from(bito::EXIT_TOOL_ERROR))
+        .stderr(predicate::str::contains("Error:"));
+}
+
+/// The declared contract must not let an outcome and an error share a code.
+///
+/// `validate_metadata` runs inside `schema_for`, and `parse_with` surfaces a
+/// violation as a clap error at runtime rather than a compile failure — so
+/// actually invoking `bito schema` is what catches it.
+#[test]
+fn schema_declares_disjoint_exit_codes() {
+    let output = cmd().arg("schema").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+    let schema: serde_json::Value = serde_json::from_str(&stdout).expect("schema should be JSON");
+
+    let outcomes: Vec<u64> = schema["outcomes"]
+        .as_array()
+        .expect("outcomes")
+        .iter()
+        .map(|o| o["code"].as_u64().expect("outcome code"))
+        .collect();
+    let errors: Vec<u64> = schema["errors"]
+        .as_array()
+        .expect("errors")
+        .iter()
+        .map(|e| e["exit_code"].as_u64().expect("error exit_code"))
+        .collect();
+
+    assert!(outcomes.contains(&u64::from(bito::EXIT_ISSUES_FOUND)));
+    assert!(errors.contains(&u64::from(bito::EXIT_TOOL_ERROR)));
+    for code in &outcomes {
+        assert!(
+            !errors.contains(code),
+            "exit code {code} is declared as both an outcome and an error"
+        );
+    }
+}
+
+// =============================================================================
+// Update Checks
+// =============================================================================
+//
+// Only `info` and `doctor` check for updates. Every test here suppresses the
+// check so the suite never depends on GitHub being reachable.
+
+/// `BITO_NO_UPDATE_CHECK=1` short-circuits before any network work.
+#[test]
+fn update_check_is_suppressible() {
+    cmd()
+        .env("BITO_NO_UPDATE_CHECK", "1")
+        .args(["--format", "text", "info"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("update").not());
+}
+
+/// Hot paths never check for updates, whatever the environment says.
+///
+/// `analyze`, `lint`, and friends run in editors and pre-commit hooks. A
+/// network round trip there is a latency bug, and `serve` is worse: stdio is
+/// the MCP channel, so any stray byte corrupts the protocol.
+#[test]
+fn hot_paths_do_not_check_for_updates() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), "The cat sat on the mat.").unwrap();
+    let path = tmp.path().to_str().unwrap();
+
+    for args in [
+        vec!["analyze", path],
+        vec!["readability", path],
+        vec!["tokens", path],
+        vec!["grammar", path],
+    ] {
+        let output = cmd()
+            .args(["--format", "json"])
+            .args(&args)
+            .output()
+            .expect("run command");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !stderr.to_lowercase().contains("update"),
+            "{} mentioned updates on stderr: {stderr}",
+            args[0]
+        );
+    }
+}
+
+/// A suppressed check leaves `doctor` reporting "up to date" rather than
+/// omitting the row, so the report shape does not depend on network state.
+#[test]
+fn doctor_reports_update_status() {
+    cmd()
+        .env("BITO_NO_UPDATE_CHECK", "1")
+        .args(["--format", "text", "doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("update: up to date"));
+}
+
+/// A suppressed check adds nothing to the JSON document.
+#[test]
+fn doctor_json_omits_update_when_current() {
+    let output = cmd()
+        .env("BITO_NO_UPDATE_CHECK", "1")
+        .args(["--format", "json", "doctor"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("doctor JSON");
+
+    assert!(
+        json.get("update").is_none(),
+        "no update means no `update` key: {json}"
+    );
 }

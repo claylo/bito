@@ -12,47 +12,81 @@
 //!
 //! # Documentation Generation
 //!
-//! The [`command()`] function returns the clap `Command` for generating man pages
-//! and shell completions via `xtask`.
+//! `xtask` builds man pages and shell completions from [`Cli`] through
+//! librebar's generators, which render the same augmented command tree that
+//! `librebar::cli::parse` uses at runtime.
 pub mod commands;
 
 #[cfg(feature = "mcp")]
 pub mod server;
 
-use clap::{CommandFactory, Parser, Subcommand};
-use std::path::PathBuf;
+use librebar::cli::clap::{Parser, Subcommand};
 
-/// Color output preference.
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
-pub enum ColorChoice {
-    /// Detect terminal capabilities automatically.
-    #[default]
-    Auto,
-    /// Always emit colors.
-    Always,
-    /// Never emit colors.
-    Never,
-}
+/// Exit code for a completed run that found issues in the input.
+///
+/// The check ran; the prose did not meet a threshold. Callers should read the
+/// output — it is a result, not a failure.
+pub const EXIT_ISSUES_FOUND: u8 = 1;
 
-impl ColorChoice {
-    /// Configure global color output based on this choice.
-    ///
-    /// Call this once at startup to set the color mode.
-    pub fn apply(self) {
-        match self {
-            Self::Auto => {} // owo-colors auto-detects by default
-            Self::Always => owo_colors::set_override(true),
-            Self::Never => owo_colors::set_override(false),
-        }
-    }
+/// Exit code for a run that could not complete.
+///
+/// Bad configuration, unreadable or oversized input, an unknown check name, or
+/// a malformed command line. Nothing was measured, so there is no output worth
+/// reading and retrying unchanged will not help.
+///
+/// This is `2` because clap already exits `2` for every usage error and that
+/// code is not configurable. Rather than fight it, bito adopts it: a malformed
+/// command line *is* a run that could not complete, so clap's default lands in
+/// the correct bucket for free. Findings therefore take `1`, which also
+/// matches eslint, ruff, and shellcheck.
+pub const EXIT_TOOL_ERROR: u8 = 2;
+
+/// A check ran to completion and the input did not meet a threshold.
+///
+/// This travels the `anyhow` error channel because it is control flow — the
+/// command is done and the rest of `main` should be skipped — but it is a
+/// result, not a failure. `main` recognizes it, prints it without the `Error:`
+/// prefix, and exits [`EXIT_ISSUES_FOUND`].
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct IssuesFound(pub String);
+
+/// Machine-readable declaration of bito's exit contract.
+///
+/// `librebar::cli::schema_for` runs `validate_metadata` over this, which
+/// rejects a schema where an outcome and an error claim the same code. That
+/// check is why `bito schema` is worth invoking in a test: the overlap would
+/// otherwise surface as a runtime clap error, not a compile failure.
+///
+/// Note that it cannot see clap's own usage-error exit, which is why
+/// [`EXIT_TOOL_ERROR`] deliberately shares clap's `2` rather than avoiding it.
+pub fn schema_metadata() -> librebar::cli::SchemaMetadata {
+    librebar::cli::SchemaMetadata::new()
+        .outcome(
+            librebar::cli::OutcomeMetadata::new(EXIT_ISSUES_FOUND, "issues_found")
+                .description("A check completed and the input did not meet a threshold"),
+        )
+        .error(
+            librebar::cli::ErrorMetadata::new("config_invalid")
+                .exit_code(EXIT_TOOL_ERROR)
+                .retryable(false)
+                .description("Configuration could not be discovered, parsed, or deserialized"),
+        )
+        .error(
+            librebar::cli::ErrorMetadata::new("input_rejected")
+                .exit_code(EXIT_TOOL_ERROR)
+                .retryable(false)
+                .description("Input was unreadable, oversized, or named an unknown check"),
+        )
 }
 
 const ENV_HELP: &str = "\
 ENVIRONMENT VARIABLES:
     RUST_LOG              Log filter (e.g., debug, bito=trace)
-    BITO_LOG_PATH         Log file path (rotated daily)
+    BITO_LOG_PATH         Log file path
     BITO_LOG_DIR          Log directory
     BITO_TOKENIZER        Tokenizer backend (claude, openai)
+    BITO_NO_UPDATE_CHECK  Set to 1 to disable update checks
 ";
 
 /// Command-line interface definition for bito.
@@ -61,39 +95,19 @@ ENVIRONMENT VARIABLES:
 #[command(about = "Quality gate tooling for building-in-the-open artifacts", long_about = None)]
 #[command(version, arg_required_else_help = true)]
 #[command(after_help = ENV_HELP)]
-#[command(disable_help_flag = true)]
 pub struct Cli {
+    /// Flags shared by every librebar-based CLI.
+    ///
+    /// Supplies `-q`, `-v`, `-C`, `-c`, `--color`, `--format`, and
+    /// `--version-only`, all global. bito declares none of these itself:
+    /// redeclaring one is a clap name collision, which panics at startup
+    /// rather than failing to compile.
+    #[command(flatten)]
+    pub common: librebar::cli::CommonArgs,
+
     /// The subcommand to execute.
     #[command(subcommand)]
     pub command: Option<Commands>,
-
-    /// Print only the version number (for scripting)
-    #[arg(long)]
-    pub version_only: bool,
-
-    /// Path to configuration file (overrides discovery)
-    #[arg(short, long, global = true, value_name = "FILE")]
-    pub config: Option<PathBuf>,
-
-    /// Run as if started in DIR
-    #[arg(short = 'C', long, global = true)]
-    pub chdir: Option<PathBuf>,
-
-    /// Only print errors (suppresses warnings/info)
-    #[arg(short, long, global = true)]
-    pub quiet: bool,
-
-    /// More detail (repeatable; e.g. -vv)
-    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
-    pub verbose: u8,
-
-    /// Colorize output
-    #[arg(long, global = true, value_enum, default_value_t)]
-    pub color: ColorChoice,
-
-    /// Output as JSON (for scripting)
-    #[arg(long, global = true)]
-    pub json: bool,
 }
 
 /// Available subcommands for the CLI.
@@ -127,21 +141,4 @@ pub enum Commands {
     /// Start MCP (Model Context Protocol) server on stdio
     #[cfg(feature = "mcp")]
     Serve(commands::serve::ServeArgs),
-}
-
-/// Returns the clap command for documentation generation.
-///
-/// Adds a custom `-h`/`--help` flag using `HelpShort` so both render
-/// the compact single-line format. This is done at the Command level
-/// (not as a struct field) because clap's derive treats `HelpShort`
-/// as a value-less exit action that conflicts with struct population.
-pub fn command() -> clap::Command {
-    Cli::command().arg(
-        clap::Arg::new("help")
-            .short('h')
-            .long("help")
-            .help("Print help")
-            .global(true)
-            .action(clap::ArgAction::HelpShort),
-    )
 }

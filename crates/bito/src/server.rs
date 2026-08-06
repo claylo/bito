@@ -451,7 +451,11 @@ impl ProjectServer {
     }
 }
 
-#[tool_handler]
+// `router` is named explicitly because the default changed between rmcp 1.3
+// and 1.8, from `self.tool_router` to `Self::tool_router()`. The new default
+// rebuilds the whole router on every tool call and leaves the field built in
+// `new()` unread — visible only as a dead_code warning.
+#[tool_handler(router = self.tool_router)]
 impl ServerHandler for ProjectServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())

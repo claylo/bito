@@ -2,6 +2,10 @@
 
 Quality gate tooling for building-in-the-open artifacts. Run writing quality checks on Markdown files via CLI or MCP server.
 
+Upgrading from an earlier version? [UPGRADING.md](UPGRADING.md) covers the
+behavior changes that need action — output format, exit codes, and config
+precedence all changed.
+
 ## Commands
 
 bito has two modes of operation: **config-driven** (`lint`) and **ad-hoc** (everything else). Pick the right one for your workflow.
@@ -18,6 +22,8 @@ bito has two modes of operation: **config-driven** (`lint`) and **ad-hoc** (ever
 | `doctor` | Diagnose configuration and environment | Debugging setup issues |
 | `info` | Show package and config information | Quick reference |
 | `serve` | Start MCP server on stdio | IDE/agent integration |
+| `schema` | Print the CLI contract as JSON | Agents and tooling that dispatch on exit codes |
+| `completions` | Generate a shell completion script | Install-time setup |
 
 ### lint
 
@@ -70,8 +76,20 @@ See [Custom content entries](#custom-content-entries) for configuration details.
 
 ```bash
 bito doctor          # shows config sources, environment, diagnostics
+bito doctor --bundle # writes a redacted bito-debug-<ts>.tar.zst for bug reports
 bito info            # shows version, features, config file paths
 ```
+
+`info` and `doctor` are the only commands that check for a newer release, so
+`analyze`, `lint`, and the rest stay offline and `serve` never risks writing to
+the MCP stdio channel. The result is cached for 24 hours; set
+`BITO_NO_UPDATE_CHECK=1` to disable it. A failed check never fails the command.
+
+`doctor` reports the resolved log file alongside the config, cache, and data
+directories, so it answers "where are my logs?" directly. `--bundle` writes the
+report to a compressed archive with secrets redacted; the archive path appears
+in `doctor --json` output as `bundle` rather than on stdout, so the JSON stays
+parseable.
 
 ### serve
 
@@ -81,18 +99,51 @@ Starts an MCP (Model Context Protocol) server on stdio for IDE and agent integra
 bito serve
 ```
 
+`serve` never checks for updates: stdio is the MCP channel, and stray output
+corrupts the protocol stream.
+
+### schema and completions
+
+```bash
+bito schema                 # exit codes, output fields, and flags as JSON
+bito completions zsh        # completion script on stdout
+```
+
+`schema` is the contract an agent reads instead of parsing `--help`. See
+[Exit codes](#exit-codes).
+
 ## Global flags
 
 These flags work with any command:
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--config <FILE>` | `-c` | Explicit config file (overrides discovery) |
+| `--config <FILE>` | `-c` | Explicit config file (overrides discovery and `BITO_*`) |
 | `--chdir <DIR>` | `-C` | Run as if started in DIR |
-| `--json` | | Output as JSON (for scripting) |
+| `--format <MODE>` | | `auto` (default), `text`, or `json` |
+| `--json` | | Alias for `--format json` |
 | `--quiet` | `-q` | Suppress warnings and info |
 | `--verbose` | `-v` | More detail (repeatable: `-vv`) |
 | `--color <MODE>` | | `auto`, `always`, or `never` |
+| `--version-only` | | Print just the version number, for scripting |
+
+`--format auto` resolves to text on a terminal and JSON when stdout is
+redirected, so piped output is machine-readable without a flag. Force one or
+the other with `--format text` / `--format json`.
+
+## Exit codes
+
+| Code | Meaning | What to do |
+|------|---------|------------|
+| `0` | Every check passed | Continue |
+| `1` | A check ran and the input missed a threshold | Read the output and fix the prose |
+| `2` | bito could not run | Fix the invocation; retrying unchanged will not help |
+
+Exit `2` covers a malformed config, unreadable or oversized input, an unknown
+check name, and command-line errors. Nothing was measured, so there is no
+result to act on. Thresholds gate the exit code in both text and JSON output.
+
+`bito schema` publishes this contract as machine-readable JSON.
 
 ## Rules configuration
 
@@ -238,17 +289,58 @@ bito searches for config files in this order:
 
 The first matching file wins within a directory; the search stops at the closest directory containing a match.
 
-Precedence (highest to lowest): CLI flags > environment variables > explicit config > project config > user config > defaults.
+Precedence (highest to lowest): CLI flags > explicit config (`-c`) > environment variables > project config > user config > defaults.
+
+Note that an explicitly named file outranks the environment. Naming a file is a
+deliberate request; an exported variable is ambient, and letting it quietly win
+over `-c` made the flag unreliable in exactly the scripted contexts that use it.
+Discovered project and user configs still lose to the environment.
 
 ### Environment variables
 
-All config fields can be set via environment variables with the `BITO_` prefix:
+All config fields can be set via environment variables with the `BITO_` prefix. Uppercase the field name; `__` crosses a nested boundary.
 
 ```bash
 BITO_DIALECT=en-gb
 BITO_LOG_LEVEL=debug
 BITO_TOKENIZER=openai
+BITO_MAX_GRADE=10.0
+BITO_TOKEN_BUDGET=4000
 ```
+
+Booleans accept only lowercase `true` and `false`. Arrays and objects use JSON
+syntax, quoted so the shell passes them intact.
+
+Three variables are not config fields and have no file equivalent:
+
+| Variable | Effect |
+|----------|--------|
+| `BITO_ENV` | Environment tag (default: `dev`) |
+| `BITO_NO_UPDATE_CHECK` | Set to `1` to disable release update checks |
+| `RUST_LOG` | Log filter, e.g. `debug` or `bito=trace` |
+
+### Where logs get written
+
+`BITO_LOG_PATH` and `BITO_LOG_DIR` decide the log destination outright. They
+win over a `log_dir` in any config file, including one named with `-c`, which
+makes them the one exception to the precedence above.
+
+That is deliberate. Where a process writes its logs is an operational
+question — a container or a systemd unit needs to redirect them without
+editing the config a project ships. `log_dir` remains a config field for the
+ordinary case; the variables are the escape hatch.
+
+Resolution order for the log file, first writable wins:
+
+1. `BITO_LOG_PATH` — exact file path
+2. `BITO_LOG_DIR` — directory, file named `bito.jsonl`
+3. `log_dir` from config
+4. platform default (`~/Library/Logs/bito/` on macOS)
+5. `/var/log` on Unix
+6. stderr, if nothing above is writable
+
+`bito doctor` reports the resolved destination, so you never have to work this
+out by hand.
 
 ### All fields
 
@@ -256,6 +348,7 @@ BITO_TOKENIZER=openai
 |-------|------|---------|-------------|
 | `log_level` | string | `info` | `debug`, `info`, `warn`, or `error` |
 | `log_dir` | path | platform default | Directory for JSONL log files |
+| `log_retention_days` | integer | `7` | Days to keep rotated logs; `0` keeps them forever |
 | `token_budget` | integer | none | Default token budget for `tokens` command |
 | `max_grade` | float | none | Default max Flesch-Kincaid grade level |
 | `passive_max_percent` | float | none | Default max passive voice percentage |

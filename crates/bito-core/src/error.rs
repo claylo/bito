@@ -3,12 +3,21 @@
 use camino::Utf8PathBuf;
 use thiserror::Error;
 
+/// Opaque error source used at public dependency boundaries.
+///
+/// The concrete error stays reachable through [`std::error::Error::source`]
+/// and `downcast_ref`, but its crate and version are not part of any
+/// bito-core error enum's layout. Swapping the config backend is then an
+/// internal change rather than a breaking one.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 /// Errors that can occur when working with configuration.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum ConfigError {
-    /// Failed to deserialize configuration.
-    #[error("invalid configuration: {0}")]
-    Deserialize(#[from] Box<figment::Error>),
+    /// Configuration could not be discovered, parsed, or deserialized.
+    #[error("invalid configuration")]
+    Load(#[source] BoxError),
 
     /// Configuration file not found after searching all locations.
     #[error("no configuration file found")]
@@ -33,6 +42,7 @@ pub type ConfigResult<T> = Result<T, ConfigError>;
 
 /// Errors that can occur during text analysis.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum AnalysisError {
     /// The tokenizer could not be initialized.
     #[error("tokenizer initialization failed: {0}")]
