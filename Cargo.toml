@@ -6,7 +6,7 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 license = "Apache-2.0 OR MIT"
-version = "1.0.0"
+version = "2.0.0"
 # version we want to allow
 rust-version = "1.89.0"
 readme = "README.md"
