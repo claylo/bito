@@ -223,7 +223,7 @@ bito includes a built-in [MCP](https://modelcontextprotocol.io/) server, so AI c
 }
 ```
 
-This exposes seven tools: `analyze_writing`, `count_tokens`, `check_readability`, `check_completeness`, `check_grammar`, `lint_file`, and `get_info`. The `lint_file` tool resolves path-based rules from your config, so the agent can check quality before writing. Total schema cost: ~2,003 tokens. See [docs/README.md](docs/README.md#mcp-tools) for per-tool details.
+This exposes eight tools: `analyze_writing`, `count_tokens`, `check_readability`, `check_completeness`, `check_grammar`, `lint_file`, `get_info`, and `get_custom`. The `lint_file` tool resolves path-based rules from your config, so the agent can check quality before writing. See [docs/README.md](docs/README.md#mcp-tools) for per-tool details.
 
 ## Configuration
 
