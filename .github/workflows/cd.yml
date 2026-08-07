@@ -210,7 +210,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_id="$(cargo pkgid)"
+          package_id="$(cargo pkgid --package bito)"
           version="${package_id##*#}"
 
           if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
@@ -219,7 +219,7 @@ jobs:
           fi
 
       - name: Package crate
-        run: cargo package --locked
+        run: cargo package --locked --package bito
 
       - name: Attest package
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
@@ -233,7 +233,7 @@ jobs:
       - name: Publish crate
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
-        run: cargo publish --locked
+        run: cargo publish --locked --package bito
 
   publish-homebrew:
     name: Publish Homebrew formula
@@ -561,14 +561,9 @@ jobs:
 
             echo "Publishing $(basename "$pkg_dir")..."
             cd "$pkg_dir"
-            # Try with provenance (OIDC) first; fall back to token-only
-            # for initial publish where OIDC isn't available yet
-            if ! npm publish --provenance --access public 2>/dev/null; then
-              echo "Provenance publish failed, retrying without provenance..."
-              if ! npm publish --access public; then
-                echo "::error::Failed to publish $(basename "$pkg_dir")"
-                failures=$((failures + 1))
-              fi
+            if ! npm publish --provenance --access public; then
+              echo "::error::Failed to publish $(basename "$pkg_dir")"
+              failures=$((failures + 1))
             fi
             cd - > /dev/null
           done
@@ -580,9 +575,5 @@ jobs:
       - name: Publish main package
         run: |
           cd "npm/${PROJECT_NAME}"
-          # Try with provenance (OIDC) first; fall back to token-only
-          if ! npm publish --provenance --access public 2>/dev/null; then
-            echo "Provenance publish failed, retrying without provenance..."
-            npm publish --access public
-          fi
+          npm publish --provenance --access public
 
