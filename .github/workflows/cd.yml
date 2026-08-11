@@ -16,7 +16,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  PROJECT_NAME: bito
+  PROJECT_NAME: ${{ vars.PROJECT_NAME }}
 
 jobs:
   publish-binaries:
@@ -210,7 +210,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_id="$(cargo pkgid --package bito)"
+          package_id="$(cargo pkgid --package "${PROJECT_NAME}")"
           version="${package_id##*#}"
 
           if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
@@ -219,21 +219,54 @@ jobs:
           fi
 
       - name: Package crates
-        run: cargo package --locked --package bito-core --package bito
+        shell: bash
+        env:
+          CARGO_PUBLISH_PACKAGES: ${{ vars.CARGO_PUBLISH_PACKAGES }}
+        run: |
+          set -euo pipefail
+          pkgs="${CARGO_PUBLISH_PACKAGES:-}"
+          if [ -z "$pkgs" ]; then
+            echo "vars.CARGO_PUBLISH_PACKAGES is unset; refusing to guess" >&2
+            exit 1
+          fi
+          IFS=' ' read -ra words <<< "$pkgs"
+          args=()
+          for p in "${words[@]}"; do args+=(--package "$p"); done
+          if [ "${#args[@]}" -eq 0 ]; then
+            echo "vars.CARGO_PUBLISH_PACKAGES contains no package names; refusing to guess" >&2
+            exit 1
+          fi
+          cargo package --locked "${args[@]}"
 
       - name: Attest packages
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
-          subject-path: target/package/bito-*.crate
+          subject-path: target/package/*.crate
 
       - name: Authenticate with crates.io
         id: crates-io-auth
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
       - name: Publish crates
+        shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
-        run: cargo publish --locked --package bito-core --package bito
+          CARGO_PUBLISH_PACKAGES: ${{ vars.CARGO_PUBLISH_PACKAGES }}
+        run: |
+          set -euo pipefail
+          pkgs="${CARGO_PUBLISH_PACKAGES:-}"
+          if [ -z "$pkgs" ]; then
+            echo "vars.CARGO_PUBLISH_PACKAGES is unset; refusing to guess" >&2
+            exit 1
+          fi
+          IFS=' ' read -ra words <<< "$pkgs"
+          args=()
+          for p in "${words[@]}"; do args+=(--package "$p"); done
+          if [ "${#args[@]}" -eq 0 ]; then
+            echo "vars.CARGO_PUBLISH_PACKAGES contains no package names; refusing to guess" >&2
+            exit 1
+          fi
+          cargo publish --locked "${args[@]}"
 
   publish-homebrew:
     name: Publish Homebrew formula
